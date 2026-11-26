@@ -6,35 +6,54 @@
   <title>SSmart Laundry - Kelola Laundry tanpa Ribet</title>
   <link id="dynamic-favicon" rel="icon" href="data:," />
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     :root {
       --app-primary: #2563eb;
       --app-primary-dark: #1d4ed8;
+      --app-btn: #2563eb;
+      --app-btn-active: #1e40af;
       --app-accent: #0ea5e9;
       --app-bg: #f8fafc;
       --app-surface: #ffffff;
       --app-sidebar: #ffffff;
+      --app-text: #0f172a;
+      --app-text-muted: #64748b;
+      --app-icon: #2563eb;
     }
     body {
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
       background-color: var(--app-bg);
-      color: #0f172a;
+      color: var(--app-text);
       -webkit-font-smoothing: antialiased;
     }
     .surface-card {
       background-color: var(--app-surface);
+      color: var(--app-text);
     }
     .sidebar-panel {
       background-color: var(--app-sidebar);
+      color: var(--app-text);
+    }
+    .app-text-main {
+      color: var(--app-text);
+    }
+    .app-text-muted {
+      color: var(--app-text-muted);
+    }
+    .app-icon-color {
+      color: var(--app-icon);
     }
     .theme-primary-bg {
-      background-color: var(--app-primary);
+      background-color: var(--app-btn);
+      transition: background-color 0.16s ease, transform 0.12s ease;
     }
-    .theme-primary-bg:hover {
-      background-color: var(--app-primary-dark);
+    .theme-primary-bg:hover,
+    .theme-primary-bg:active,
+    .theme-btn-active {
+      background-color: var(--app-btn-active) !important;
     }
     .theme-primary-text {
       color: var(--app-primary);
@@ -43,11 +62,38 @@
       color: var(--app-accent);
     }
     @keyframes fadeSlideUp {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
+      from { opacity: 0; transform: translateY(10px) scale(0.99); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes dropdownReveal {
+      from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes drawerSlideIn {
+      from { opacity: 0; transform: translateX(-18px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes backdropFade {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
     .animate-page {
-      animation: fadeSlideUp 0.22s ease-out;
+      animation: fadeSlideUp 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .animate-dropdown {
+      animation: dropdownReveal 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .animate-drawer {
+      animation: drawerSlideIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .animate-backdrop {
+      animation: backdropFade 0.24s ease-out both;
+    }
+    .smooth-card {
+      transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.24s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s ease;
+    }
+    .smooth-card:hover {
+      transform: translateY(-1px);
     }
     @media print {
       .no-print { display: none !important; }
@@ -63,7 +109,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyCuY0JO7eIFl656y3Nw92sp9N850YBVJEI",
@@ -99,16 +145,31 @@
 
     const DEFAULT_PLATFORM_BRANDING = {
       platformName: "SSmart Laundry",
-      footerText: "© 2026 SSmart Laundry • Sistem Manajemen Laundry & SaaS",
+      footerText: "© 2026 SSmart Laundry",
       supportWhatsApp: "6281234567890",
       primaryColor: "#2563eb",
       primaryDarkColor: "#1d4ed8",
+      btnColor: "#2563eb",
+      btnActiveColor: "#1e40af",
       accentColor: "#0ea5e9",
       bgColor: "#f8fafc",
       surfaceColor: "#ffffff",
       sidebarColor: "#ffffff",
+      textColor: "#0f172a",
+      textMutedColor: "#64748b",
+      iconColor: "#2563eb",
+      iconStyle: "line",
       logoUrl: "",
       faviconUrl: ""
+    };
+
+    const DEFAULT_STATUS_SETTINGS = {
+      RECEIVED: { label: "Diterima", badgeClass: "bg-slate-100 text-slate-800" },
+      WASHING: { label: "Dicuci", badgeClass: "bg-blue-100 text-blue-800" },
+      DRYING: { label: "Dikeringkan", badgeClass: "bg-cyan-100 text-cyan-800" },
+      IRONING: { label: "Disetrika", badgeClass: "bg-amber-100 text-amber-800" },
+      READY: { label: "Siap Diambil", badgeClass: "bg-emerald-100 text-emerald-800" },
+      COMPLETED: { label: "Selesai", badgeClass: "bg-purple-100 text-purple-800" }
     };
 
     const state = {
@@ -134,7 +195,7 @@
       quickCart: [],
       quickCustomerId: "",
       quickPaidAmount: 0,
-      quickPaymentMethod: "CASH",
+      quickPaymentMethod: "Tunai (CASH)",
       quickNotes: "",
       superAdminAuth: {
         id: "usr_super_admin",
@@ -145,6 +206,38 @@
       },
       platformBranding: { ...DEFAULT_PLATFORM_BRANDING },
       pricingPlans: JSON.parse(JSON.stringify(DEFAULT_PRICING_PLANS)),
+      statusSettings: JSON.parse(JSON.stringify(DEFAULT_STATUS_SETTINGS)),
+      roleGuides: {
+        SUPER_ADMIN: [
+          "Pantau daftar Owner dan Tenant pada menu Dashboard.",
+          "Daftarkan Owner baru, edit email/password Owner, dan perpanjang masa aktif di Dashboard atau Super Admin SaaS.",
+          "Atur harga paket, warna tema global, logo web, favicon, footer, dan teks panduan tiap role di menu Super Admin SaaS."
+        ],
+        OWNER: [
+          "Kelola kasir, order, pelanggan, pembayaran, pengeluaran, layanan, dan laporan keuangan.",
+          "Tambah, edit, aktifkan/nonaktifkan, atau hapus akun Admin, Kasir, dan Operator di bawah naungan Anda pada menu Karyawan.",
+          "Upload logo bisnis & atur rekening/QRIS di Pengaturan, serta gunakan menu Help untuk kontak WhatsApp Super Admin."
+        ],
+        ADMIN: [
+          "Berada di bawah naungan Owner untuk membantu mengelola operasional cabang harian.",
+          "Jalankan transaksi kasir, pembaruan status order, pelanggan, pembayaran/piutang, pengeluaran, layanan, serta rekening bank & upload gambar QRIS di Pengaturan.",
+          "Gunakan tombol perpanjangan paket saat masa aktif mendekati 7 hari terakhir."
+        ],
+        KASIR: [
+          "Buat order baru di Kasir Quick Order (bisa tambah pelanggan baru langsung) dan cetak atau share nota ke WA pelanggan.",
+          "Cari nota lewat Scan Barcode/QR dan catat pelunasan pembayaran pelanggan."
+        ],
+        OPERATOR: [
+          "Buka menu Order Laundry atau Scan Barcode/QR untuk memperbarui tahap proses cucian (Diterima, Dicuci, Dikeringkan, Disetrika, Siap Diambil, Selesai)."
+        ]
+      },
+      mobileSidebarOpen: false,
+      editingGuideRole: "KASIR",
+      openDropdownId: null,
+      modalEmpRole: "KASIR",
+      modalEmpBranchId: "",
+      modalOwnerRole: "OWNER",
+      modalOwnerPlan: "STARTER",
       businesses: [],
       owners: [],
       employees: [],
@@ -153,19 +246,11 @@
       orders: [],
       payments: [],
       expenses: [],
-      cashTransactions: [],
-      statusSettings: {
-        RECEIVED: { label: "Diterima", badgeClass: "bg-sky-100 text-sky-800" },
-        WASHING: { label: "Dicuci", badgeClass: "bg-blue-100 text-blue-800" },
-        DRYING: { label: "Dikeringkan", badgeClass: "bg-indigo-100 text-indigo-800" },
-        IRONING: { label: "Disetrika", badgeClass: "bg-violet-100 text-violet-800" },
-        READY: { label: "Siap Diambil", badgeClass: "bg-amber-100 text-amber-800" },
-        COMPLETED: { label: "Selesai", badgeClass: "bg-emerald-100 text-emerald-800" }
-      }
+      cashTransactions: []
     };
 
-    function escapeHtml(val) {
-      return String(val ?? "")
+    function escapeHtml(str) {
+      return String(str ?? "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
@@ -175,98 +260,131 @@
 
     function formatRupiah(num) {
       const n = Number(num || 0);
-      return "Rp " + Math.round(n).toLocaleString("id-ID");
+      return "Rp " + n.toLocaleString("id-ID");
     }
 
     function getJakartaNow() {
-      const now = new Date();
-      const jkt = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
-      const yyyy = jkt.getFullYear();
-      const mm = String(jkt.getMonth() + 1).padStart(2, "0");
-      const dd = String(jkt.getDate()).padStart(2, "0");
-      const hh = String(jkt.getHours()).padStart(2, "0");
-      const min = String(jkt.getMinutes()).padStart(2, "0");
+      try {
+        const now = new Date();
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Jakarta",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false
+        }).formatToParts(now);
+        const map = {};
+        parts.forEach(p => { map[p.type] = p.value; });
+        return {
+          dateStr: `${map.year}-${map.month}-${map.day}`,
+          timeStr: `${map.hour}:${map.minute}`
+        };
+      } catch (e) {
+        const d = new Date();
+        return {
+          dateStr: d.toISOString().slice(0, 10),
+          timeStr: d.toTimeString().slice(0, 5)
+        };
+      }
+    }
+
+    function addDaysToDateStr(dateStr, days) {
+      const base = dateStr ? new Date(dateStr + "T00:00:00") : new Date();
+      if (isNaN(base.getTime())) return getJakartaNow().dateStr;
+      base.setDate(base.getDate() + Number(days || 0));
+      const y = base.getFullYear();
+      const m = String(base.getMonth() + 1).padStart(2, "0");
+      const d = String(base.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
+    function getRemainingDays(expiresAt) {
+      if (!expiresAt) return 30;
+      const todayStr = getJakartaNow().dateStr;
+      const t0 = new Date(todayStr + "T00:00:00").getTime();
+      const t1 = new Date(expiresAt + "T00:00:00").getTime();
+      if (isNaN(t1)) return 30;
+      return Math.ceil((t1 - t0) / 86400000);
+    }
+
+    function sanitizeSessionUser(u) {
+      if (!u) return null;
       return {
-        dateStr: `${yyyy}-${mm}-${dd}`,
-        timeStr: `${hh}:${min}`,
-        fullLabel: `${dd}/${mm}/${yyyy} ${hh}:${min} WIB`
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        businessId: u.businessId
       };
     }
 
-    function addDaysToDateStr(baseDateStr, days) {
-      const parts = String(baseDateStr || getJakartaNow().dateStr).split("-");
-      const dt = new Date(Number(parts[0] || 2026), Number(parts[1] || 11) - 1, Number(parts[2] || 26));
-      dt.setDate(dt.getDate() + Number(days || 0));
-      const yyyy = dt.getFullYear();
-      const mm = String(dt.getMonth() + 1).padStart(2, "0");
-      const dd = String(dt.getDate()).padStart(2, "0");
-      return `${yyyy}-${mm}-${dd}`;
-    }
-
-    function getRemainingDays(expiresAtStr) {
-      if (!expiresAtStr) return 30;
-      const todayParts = getJakartaNow().dateStr.split("-");
-      const expParts = String(expiresAtStr).split("-");
-      const todayUtc = Date.UTC(Number(todayParts[0]), Number(todayParts[1]) - 1, Number(todayParts[2]));
-      const expUtc = Date.UTC(Number(expParts[0]), Number(expParts[1]) - 1, Number(expParts[2]));
-      return Math.ceil((expUtc - todayUtc) / (1000 * 60 * 60 * 24));
-    }
-
-    async function hashPasswordText(rawText) {
-      const str = String(rawText || "");
-      if (!str) return "";
-      if (str.startsWith("sha256:")) return str;
+    async function hashPasswordText(plain) {
+      const txt = String(plain || "");
+      if (txt.startsWith("sha256:")) return txt;
       try {
         if (window.crypto && window.crypto.subtle) {
-          const enc = new TextEncoder().encode(str);
-          const buf = await window.crypto.subtle.digest("SHA-256", enc);
+          const buf = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(txt));
           const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
           return "sha256:" + hex;
         }
       } catch (e) {}
-      return str;
+      return txt;
     }
 
-    async function verifyPasswordMatch(inputPassword, storedPassword) {
-      const plain = String(inputPassword || "");
-      const stored = String(storedPassword || "");
-      if (!plain || !stored) return false;
-      if (stored.startsWith("sha256:")) {
-        const hashed = await hashPasswordText(plain);
-        return hashed === stored;
+    async function verifyPasswordMatch(inputPlain, storedPass) {
+      const inStr = String(inputPlain || "");
+      const stStr = String(storedPass || "");
+      if (!stStr) return false;
+      if (stStr.startsWith("sha256:")) {
+        const hashed = await hashPasswordText(inStr);
+        return hashed === stStr;
       }
-      return plain === stored;
-    }
-
-    function sanitizeSessionUser(userObj) {
-      if (!userObj) return null;
-      return {
-        id: userObj.id,
-        name: userObj.name,
-        email: userObj.email,
-        role: userObj.role,
-        businessId: userObj.businessId || ""
-      };
+      return inStr === stStr;
     }
 
     function getCurrentBusiness() {
-      const found = state.businesses.find(b => b.id === state.activeBusinessId);
-      return found || state.businesses[0] || {
+      const role = state.currentUser?.role;
+      if (role === "OWNER") {
+        const owned = getOwnerBusinesses(state.currentUser.id);
+        if (owned.length > 0) {
+          return owned.find(b => b.id === state.activeBusinessId) || owned[0];
+        }
+      }
+      const targetId = state.currentUser?.businessId || state.activeBusinessId;
+      return state.businesses.find(b => b.id === targetId) || state.businesses[0] || {
         id: "biz_ssmart_01",
+        ownerId: "own_01",
         name: "SSmart Laundry Pusat",
-        ownerName: "Budi Santoso",
-        phone: "6281298765432",
-        address: "Jl. Melati No. 12, Jakarta Selatan",
+        ownerName: "Owner",
+        phone: "",
+        address: "",
         plan: "PRO",
-        expiresAt: addDaysToDateStr(getJakartaNow().dateStr, 5),
+        expiresAt: addDaysToDateStr(getJakartaNow().dateStr, 30),
         logoUrl: "",
-        receiptFooter: "Terima kasih telah mempercayakan cucian Anda kepada kami."
+        receiptFooter: "",
+        qrisImageUrl: "",
+        paymentAccounts: []
       };
     }
 
+    function getOwnerBusinesses(ownerId) {
+      if (!ownerId) return [];
+      const ownerRec = state.owners.find(o => o.id === ownerId);
+      return state.businesses.filter(b => b.ownerId === ownerId || (ownerRec && b.id === ownerRec.businessId));
+    }
+
+    function getOwnerBranchQuota(ownerId) {
+      const ownerRec = state.owners.find(o => o.id === ownerId);
+      const owned = getOwnerBusinesses(ownerId);
+      const purchased = Number(ownerRec?.maxBranches || Math.max(1, owned.length));
+      return Math.max(1, purchased);
+    }
+
     function canAccess(tab) {
-      if (!state.isAuthenticated || !state.currentUser) return false;
-      const role = state.currentUser.role;
+      const role = state.currentUser?.role;
+      if (!role) return false;
       if (role === "SUPER_ADMIN") {
         return ["dashboard", "saas", "settings", "guide"].includes(tab);
       }
@@ -285,19 +403,50 @@
       return false;
     }
 
-    function showToast(message, type = "success") {
+    function applyThemeVariables() {
+      const pb = Object.assign({}, DEFAULT_PLATFORM_BRANDING, state.platformBranding || {});
+      const root = document.documentElement;
+      root.style.setProperty("--app-primary", pb.primaryColor || "#2563eb");
+      root.style.setProperty("--app-primary-dark", pb.primaryDarkColor || "#1d4ed8");
+      root.style.setProperty("--app-btn", pb.btnColor || pb.primaryColor || "#2563eb");
+      root.style.setProperty("--app-btn-active", pb.btnActiveColor || "#1e40af");
+      root.style.setProperty("--app-accent", pb.accentColor || "#0ea5e9");
+      root.style.setProperty("--app-bg", pb.bgColor || "#f8fafc");
+      root.style.setProperty("--app-surface", pb.surfaceColor || "#ffffff");
+      root.style.setProperty("--app-sidebar", pb.sidebarColor || "#ffffff");
+      root.style.setProperty("--app-text", pb.textColor || "#0f172a");
+      root.style.setProperty("--app-text-muted", pb.textMutedColor || "#64748b");
+      root.style.setProperty("--app-icon", pb.iconColor || pb.primaryColor || "#2563eb");
+      document.title = pb.platformName ? `${pb.platformName} - Kelola Laundry tanpa Ribet` : "SSmart Laundry";
+      const fav = document.getElementById("dynamic-favicon");
+      if (fav && pb.faviconUrl) fav.href = pb.faviconUrl;
+    }
+
+    function showToast(msg, type = "success") {
       const root = document.getElementById("toast-root");
       if (!root) return;
       const el = document.createElement("div");
-      const bg = type === "error" ? "bg-rose-600 text-white" : "bg-slate-900 text-white";
-      el.className = `px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 ${bg} animate-page`;
-      el.textContent = message;
+      el.className = `px-4 py-2.5 rounded-xl text-xs font-semibold shadow-lg pointer-events-auto animate-page ${
+        type === "error" ? "bg-rose-600 text-white" : "bg-slate-900 text-white"
+      }`;
+      el.textContent = msg;
       root.appendChild(el);
       setTimeout(() => {
-        el.style.opacity = "0";
-        el.style.transition = "opacity 0.2s ease";
-        setTimeout(() => el.remove(), 220);
-      }, 2800);
+        try { el.remove(); } catch (e) {}
+      }, 3200);
+    }
+
+    function openModal(innerHtml) {
+      const root = document.getElementById("modal-root");
+      if (!root) return;
+      root.innerHTML = `
+        <div class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-[2px] animate-backdrop flex items-center justify-center p-4"
+          onclick="if(event.target===this) window.appActions.closeModal()">
+          <div class="bg-white rounded-3xl p-5 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl animate-page">
+            ${innerHtml}
+          </div>
+        </div>
+      `;
     }
 
     function closeModal() {
@@ -305,32 +454,120 @@
       if (root) root.innerHTML = "";
     }
 
-    function openModal(htmlContent) {
-      const root = document.getElementById("modal-root");
-      if (!root) return;
-      root.innerHTML = `
-        <div class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-[1px] flex items-center justify-center p-4" onclick="if(event.target===this) window.appActions.closeModal()">
-          <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-xl border border-slate-200 max-h-[90vh] overflow-y-auto animate-page">
-            ${htmlContent}
-          </div>
+    function renderCustomDropdown({ id, value, placeholder = "Pilih opsi", options = [], onSelectFn, buttonClass = "" }) {
+      const isOpen = state.openDropdownId === id;
+      const selected = options.find(opt => String(opt.value) === String(value));
+      const displayLabel = selected ? selected.label : placeholder;
+      const displaySub = selected && selected.sub ? selected.sub : "";
+
+      return `
+        <div class="relative" data-custom-dropdown="${escapeHtml(id)}">
+          <button type="button"
+            onclick="event.stopPropagation(); window.appActions.toggleCustomDropdown('${escapeHtml(id)}')"
+            class="w-full px-3.5 py-2.5 rounded-xl border ${isOpen ? "border-blue-500 ring-2 ring-blue-500/15" : "border-slate-200 hover:border-slate-300"} bg-white text-left flex items-center justify-between gap-2 transition-all duration-200 ${buttonClass}">
+            <div class="min-w-0 flex-1">
+              <div class="text-xs font-semibold ${selected ? "text-slate-800" : "text-slate-400"} truncate">${escapeHtml(displayLabel)}</div>
+              ${displaySub ? `<div class="text-[10px] text-slate-400 truncate">${escapeHtml(displaySub)}</div>` : ""}
+            </div>
+            <svg viewBox="0 0 24 24" class="w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${isOpen ? "rotate-180 text-blue-600" : ""}">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+          </button>
+
+          ${isOpen ? `
+            <div onclick="event.stopPropagation()"
+              class="absolute left-0 right-0 mt-1.5 z-50 bg-white rounded-2xl border border-slate-200/90 shadow-xl py-1.5 max-h-56 overflow-y-auto animate-dropdown">
+              ${options.length === 0
+                ? `<div class="px-3.5 py-2.5 text-xs text-slate-400 text-center">Tidak ada pilihan</div>`
+                : options.map(opt => {
+                    const active = String(opt.value) === String(value);
+                    const encodedVal = encodeURIComponent(String(opt.value ?? ""));
+                    return `
+                      <button type="button"
+                        onclick="window.appActions.selectCustomDropdownValue('${escapeHtml(id)}', decodeURIComponent('${encodedVal}'), '${onSelectFn}')"
+                        class="w-full px-3.5 py-2 text-left flex items-center justify-between gap-2 transition-colors ${active ? "bg-blue-50/80 text-blue-700" : "text-slate-700 hover:bg-slate-50"}">
+                        <div class="min-w-0">
+                          <div class="text-xs font-semibold truncate">${escapeHtml(opt.label)}</div>
+                          ${opt.sub ? `<div class="text-[10px] ${active ? "text-blue-500" : "text-slate-400"} truncate">${escapeHtml(opt.sub)}</div>` : ""}
+                        </div>
+                        ${active ? `
+                          <svg viewBox="0 0 24 24" class="w-4 h-4 text-blue-600 shrink-0">
+                            <path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                          </svg>
+                        ` : ""}
+                      </button>
+                    `;
+                  }).join("")
+              }
+            </div>
+          ` : ""}
         </div>
       `;
     }
 
-    function applyThemeVariables() {
-      const pb = Object.assign({}, DEFAULT_PLATFORM_BRANDING, state.platformBranding || {});
-      const r = document.documentElement.style;
-      r.setProperty("--app-primary", pb.primaryColor || "#2563eb");
-      r.setProperty("--app-primary-dark", pb.primaryDarkColor || "#1d4ed8");
-      r.setProperty("--app-accent", pb.accentColor || "#0ea5e9");
-      r.setProperty("--app-bg", pb.bgColor || "#f8fafc");
-      r.setProperty("--app-surface", pb.surfaceColor || "#ffffff");
-      r.setProperty("--app-sidebar", pb.sidebarColor || "#ffffff");
-      document.title = `${pb.platformName || "SSmart Laundry"} - Kelola Laundry tanpa Ribet`;
-      if (pb.faviconUrl) {
-        const fav = document.getElementById("dynamic-favicon");
-        if (fav) fav.href = pb.faviconUrl;
-      }
+    function renderIcon(name, sizeClass = "w-4 h-4", isInverse = false) {
+      const isSolid = (state.platformBranding?.iconStyle || "line") === "solid";
+      const colorCls = isInverse ? "text-current" : "app-icon-color";
+      const cls = `${sizeClass} ${colorCls} shrink-0`;
+
+      const paths = {
+        dashboard: isSolid
+          ? `<path fill="currentColor" d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>`
+          : `<rect x="3" y="3" width="7" height="9" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="14" y="3" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="14" y="12" width="7" height="9" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="16" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/>`,
+        pos: isSolid
+          ? `<path fill="currentColor" d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2zM7.16 14.26l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49A.996.996 0 0020.01 4H5.21l-.94-2H1v2h2l3.6 7.59-1.35 2.44C4.52 15.37 5.48 17 7 17h12v-2H7.42c-.14 0-.25-.11-.26-.24z"/>`
+          : `<circle cx="9" cy="20" r="1.5" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="18" cy="20" r="1.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M2 3h3l2.4 11.2a1.5 1.5 0 001.47 1.2h9.26a1.5 1.5 0 001.46-1.15L21 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+        orders: isSolid
+          ? `<path fill="currentColor" d="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>`
+          : `<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 7h6m-6 4h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        scanner: isSolid
+          ? `<path fill="currentColor" d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 0h2v2h-2v-2zm4 0h2v2h-2v-2zm-4 4h2v2h-2v-2zm4 0h2v2h-2v-2z"/>`
+          : `<path d="M4 8V6a2 2 0 012-2h2M4 16v2a2 2 0 002 2h2m8-16h2a2 2 0 012 2v2m-4 12h2a2 2 0 002-2v-2M7 12h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        customers: isSolid
+          ? `<path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/>`
+          : `<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        payments: isSolid
+          ? `<path fill="currentColor" d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>`
+          : `<rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M2 10h20M6 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        expenses: isSolid
+          ? `<path fill="currentColor" d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/>`
+          : `<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+        reports: isSolid
+          ? `<path fill="currentColor" d="M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z"/>`
+          : `<path d="M18 20V10M12 20V4M6 20v-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        services: isSolid
+          ? `<path fill="currentColor" d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/>`
+          : `<path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/>`,
+        employees: isSolid
+          ? `<path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>`
+          : `<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/>`,
+        saas: isSolid
+          ? `<path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zm0 7.3L4.74 6 12 2.7 19.26 6 12 9.3zm0 2.7l-10-5v4l10 5 10-5V7l-10 5zm0 5l-10-5v4l10 5 10-5v-4l-10 5z"/>`
+          : `<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+        settings: isSolid
+          ? `<path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>`
+          : `<circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/>`,
+        help: isSolid
+          ? `<path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>`
+          : `<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        guide: isSolid
+          ? `<path fill="currentColor" d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"/>`
+          : `<path d="M4 19.5A2.5 2.5 0 016.5 17H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" stroke="currentColor" stroke-width="2" fill="none"/>`,
+        plus: isSolid
+          ? `<path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>`
+          : `<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        logout: isSolid
+          ? `<path fill="currentColor" d="M10 3H5a2 2 0 00-2 2v14a2 2 0 002 2h5v-2H5V5h5V3zm7 4l5 5-5 5v-3H9v-4h8V7z"/>`
+          : `<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+        menu: isSolid
+          ? `<path fill="currentColor" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/>`
+          : `<path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        close: isSolid
+          ? `<path fill="currentColor" d="M6.4 5L5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6 6.4 5z"/>`
+          : `<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`
+      };
+
+      return `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true">${paths[name] || paths.dashboard}</svg>`;
     }
 
     function seedInitialData() {
@@ -338,6 +575,7 @@
       state.businesses = [
         {
           id: "biz_ssmart_01",
+          ownerId: "own_01",
           name: "SSmart Laundry Pusat",
           ownerName: "Budi Santoso",
           phone: "6281298765432",
@@ -345,10 +583,17 @@
           plan: "PRO",
           expiresAt: addDaysToDateStr(today, 5),
           logoUrl: "",
-          receiptFooter: "Terima kasih telah mempercayakan cucian Anda kepada kami."
+          receiptFooter: "Terima kasih telah mempercayakan cucian Anda kepada kami.",
+          qrisImageUrl: "",
+          paymentAccounts: [
+            { id: "acc_01", methodType: "CASH", label: "Tunai (CASH)", accountNumber: "-", accountHolder: "Kasir Outlet" },
+            { id: "acc_02", methodType: "QRIS", label: "QRIS Outlet", accountNumber: "Scan QRIS", accountHolder: "SSmart Laundry Pusat" },
+            { id: "acc_03", methodType: "TRANSFER", label: "Transfer BCA", accountNumber: "8820192834", accountHolder: "Budi Santoso" }
+          ]
         },
         {
           id: "biz_ssmart_02",
+          ownerId: "own_02",
           name: "SSmart Laundry Kemang",
           ownerName: "Siti Rahma",
           phone: "6281388997766",
@@ -356,7 +601,12 @@
           plan: "STARTER",
           expiresAt: addDaysToDateStr(today, 24),
           logoUrl: "",
-          receiptFooter: "Simpan struk atau scan QR untuk cek progres cucian."
+          receiptFooter: "Simpan struk atau scan QR untuk cek progres cucian.",
+          qrisImageUrl: "",
+          paymentAccounts: [
+            { id: "acc_04", methodType: "CASH", label: "Tunai (CASH)", accountNumber: "-", accountHolder: "Kasir Outlet" },
+            { id: "acc_05", methodType: "TRANSFER", label: "Transfer Mandiri", accountNumber: "127000998877", accountHolder: "Siti Rahma" }
+          ]
         }
       ];
 
@@ -370,6 +620,7 @@
           phone: "6281298765432",
           role: "OWNER",
           status: "ACTIVE",
+          maxBranches: 2,
           expiresAt: addDaysToDateStr(today, 5)
         },
         {
@@ -381,6 +632,7 @@
           phone: "6281388997766",
           role: "OWNER",
           status: "ACTIVE",
+          maxBranches: 1,
           expiresAt: addDaysToDateStr(today, 24)
         }
       ];
@@ -417,7 +669,7 @@
           totalAmount: 32000,
           paidAmount: 32000,
           paymentStatus: "PAID",
-          paymentMethod: "QRIS",
+          paymentMethod: "QRIS Outlet",
           status: "READY",
           notes: "Pisahkan baju putih",
           createdAt: `${today} 09:15`,
@@ -434,17 +686,35 @@
           totalAmount: 35000,
           paidAmount: 15000,
           paymentStatus: "PARTIAL",
-          paymentMethod: "CASH",
+          paymentMethod: "Tunai (CASH)",
           status: "WASHING",
           notes: "DP 15 ribu",
           createdAt: `${today} 11:30`,
           estimatedDone: addDaysToDateStr(today, 3)
+        },
+        {
+          id: "ord_03",
+          businessId: "biz_ssmart_01",
+          invoiceNumber: "SS-261126-0003",
+          customerId: "cust_01",
+          customerName: "Andi Pratama",
+          customerPhone: "081290001111",
+          items: [{ serviceId: "srv_02", name: "Cuci Lipat Express", qty: 3, unit: "kg", price: 12000, subtotal: 36000 }],
+          totalAmount: 36000,
+          paidAmount: 36000,
+          paymentStatus: "PAID",
+          paymentMethod: "Tunai (CASH)",
+          status: "RECEIVED",
+          notes: "Baru masuk",
+          createdAt: `${today} 14:10`,
+          estimatedDone: addDaysToDateStr(today, 1)
         }
       ];
 
       state.payments = [
-        { id: "pay_01", businessId: "biz_ssmart_01", orderId: "ord_01", invoiceNumber: "SS-261126-0001", customerName: "Andi Pratama", amount: 32000, method: "QRIS", date: today, note: "Lunas awal" },
-        { id: "pay_02", businessId: "biz_ssmart_01", orderId: "ord_02", invoiceNumber: "SS-261126-0002", customerName: "Nadia Putri", amount: 15000, method: "CASH", date: today, note: "DP awal" }
+        { id: "pay_01", businessId: "biz_ssmart_01", orderId: "ord_01", invoiceNumber: "SS-261126-0001", customerName: "Andi Pratama", amount: 32000, method: "QRIS Outlet", date: today, note: "Lunas awal" },
+        { id: "pay_02", businessId: "biz_ssmart_01", orderId: "ord_02", invoiceNumber: "SS-261126-0002", customerName: "Nadia Putri", amount: 15000, method: "Tunai (CASH)", date: today, note: "DP awal" },
+        { id: "pay_03", businessId: "biz_ssmart_01", orderId: "ord_03", invoiceNumber: "SS-261126-0003", customerName: "Andi Pratama", amount: 36000, method: "Tunai (CASH)", date: today, note: "Lunas awal" }
       ];
 
       state.expenses = [
@@ -452,7 +722,7 @@
       ];
 
       state.cashTransactions = [
-        { id: "csh_01", businessId: "biz_ssmart_01", type: "IN", category: "Pembayaran Order", amount: 47000, date: today, note: "Kas masuk order SS-261126-0001 & 0002" },
+        { id: "csh_01", businessId: "biz_ssmart_01", type: "IN", category: "Pembayaran Order", amount: 83000, date: today, note: "Kas masuk order hari ini" },
         { id: "csh_02", businessId: "biz_ssmart_01", type: "OUT", category: "Bahan Baku", amount: 245000, date: today, note: "Pembelian deterjen & parfum" }
       ];
     }
@@ -463,6 +733,7 @@
           superAdminAuth: state.superAdminAuth,
           platformBranding: state.platformBranding,
           pricingPlans: state.pricingPlans,
+          roleGuides: state.roleGuides,
           businesses: state.businesses,
           owners: state.owners,
           employees: state.employees,
@@ -487,6 +758,7 @@
           if (parsed.superAdminAuth) state.superAdminAuth = Object.assign({}, state.superAdminAuth, parsed.superAdminAuth);
           if (parsed.platformBranding) state.platformBranding = Object.assign({}, DEFAULT_PLATFORM_BRANDING, parsed.platformBranding);
           if (Array.isArray(parsed.pricingPlans) && parsed.pricingPlans.length) state.pricingPlans = parsed.pricingPlans;
+          if (parsed.roleGuides) state.roleGuides = Object.assign({}, state.roleGuides, parsed.roleGuides);
           if (Array.isArray(parsed.businesses) && parsed.businesses.length) state.businesses = parsed.businesses;
           if (Array.isArray(parsed.owners) && parsed.owners.length) state.owners = parsed.owners;
           if (Array.isArray(parsed.employees) && parsed.employees.length) state.employees = parsed.employees;
@@ -496,7 +768,7 @@
           if (Array.isArray(parsed.payments) && parsed.payments.length) state.payments = parsed.payments;
           if (Array.isArray(parsed.expenses) && parsed.expenses.length) state.expenses = parsed.expenses;
           if (Array.isArray(parsed.cashTransactions) && parsed.cashTransactions.length) state.cashTransactions = parsed.cashTransactions;
-          if (parsed.statusSettings) state.statusSettings = Object.assign({}, state.statusSettings, parsed.statusSettings);
+          if (parsed.statusSettings) state.statusSettings = Object.assign({}, DEFAULT_STATUS_SETTINGS, parsed.statusSettings);
         }
       } catch (e) {}
 
@@ -536,6 +808,7 @@
           superAdminAuth: state.superAdminAuth,
           platformBranding: state.platformBranding,
           pricingPlans: state.pricingPlans,
+          roleGuides: state.roleGuides,
           statusSettings: state.statusSettings,
           updatedAt: new Date().toISOString()
         }, { merge: true });
@@ -551,6 +824,16 @@
         await setDoc(docRef, Object.assign({}, record, { updatedAt: new Date().toISOString() }), { merge: true });
       } catch (e) {
         console.error(`syncRecordToCloud (${colName}) failed:`, e);
+      }
+    }
+
+    async function deleteRecordFromCloud(colName, recordId) {
+      if (!fbDb || !state.firebaseConnected || !recordId) return;
+      try {
+        const docRef = doc(fbDb, "artifacts", appId, "public", "data", colName, recordId);
+        await deleteDoc(docRef);
+      } catch (e) {
+        console.error(`deleteRecordFromCloud (${colName}) failed:`, e);
       }
     }
 
@@ -579,14 +862,15 @@
           if (d.superAdminAuth) state.superAdminAuth = Object.assign({}, state.superAdminAuth, d.superAdminAuth);
           if (d.platformBranding) state.platformBranding = Object.assign({}, DEFAULT_PLATFORM_BRANDING, d.platformBranding);
           if (Array.isArray(d.pricingPlans) && d.pricingPlans.length) state.pricingPlans = d.pricingPlans;
-          if (d.statusSettings) state.statusSettings = Object.assign({}, state.statusSettings, d.statusSettings);
+          if (d.roleGuides) state.roleGuides = Object.assign({}, state.roleGuides, d.roleGuides);
+          if (d.statusSettings) state.statusSettings = Object.assign({}, DEFAULT_STATUS_SETTINGS, d.statusSettings);
           applyThemeVariables();
           saveStateToStorage();
           renderApp();
         } else {
           syncAllCollectionsToCloud();
         }
-      }, (err) => {
+      }, () => {
         state.firebaseConnected = false;
         state.firebaseStatusNote = "Sinkron Lokal (Cek Rules / Firestore)";
         renderApp();
@@ -670,18 +954,81 @@
     }
 
     function getScopedEmployees() {
+      const role = state.currentUser?.role;
+      if (role === "OWNER") {
+        const ownedIds = getOwnerBusinesses(state.currentUser.id).map(b => b.id);
+        return state.employees.filter(e => ownedIds.includes(e.businessId));
+      }
       const biz = getCurrentBusiness();
       return state.employees.filter(e => e.businessId === biz.id);
+    }
+
+    function normalizeOrderStatus(rawStatus) {
+      const s = String(rawStatus || "RECEIVED").trim().toUpperCase();
+      if (s === "RECEIVED" || s === "DITERIMA") return "RECEIVED";
+      if (s === "WASHING" || s === "DICUCI") return "WASHING";
+      if (s === "DRYING" || s === "DIKERINGKAN") return "DRYING";
+      if (s === "IRONING" || s === "DISETRIKA") return "IRONING";
+      if (s === "READY" || s === "SIAP DIAMBIL" || s === "SIAP_DIAMBIL") return "READY";
+      if (s === "COMPLETED" || s === "SELESAI") return "COMPLETED";
+      return s;
     }
 
     function getTrackingUrl(invoiceNumber) {
       try {
         const u = new URL(window.location.href);
         u.searchParams.set("track", invoiceNumber);
+        u.hash = `track=${encodeURIComponent(invoiceNumber)}`;
         return u.toString();
       } catch (e) {
-        return `?track=${encodeURIComponent(invoiceNumber)}`;
+        return `#track=${encodeURIComponent(invoiceNumber)}`;
       }
+    }
+
+    function syncUrlRoute() {
+      try {
+        let targetHash = "#login";
+        if (state.publicPortalMode) {
+          targetHash = state.publicTrackQuery
+            ? `#track=${encodeURIComponent(state.publicTrackQuery)}`
+            : "#track";
+        } else if (state.isAuthenticated && state.currentUser) {
+          targetHash = `#${state.activeTab || "dashboard"}`;
+        }
+        if (window.location.hash !== targetHash) {
+          history.replaceState(null, "", targetHash);
+        }
+      } catch (e) {}
+    }
+
+    function applyRouteFromUrl() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const trackParam = params.get("track");
+        const rawHash = String(window.location.hash || "").replace(/^#/, "").trim();
+
+        if (trackParam) {
+          state.publicPortalMode = true;
+          state.publicTrackQuery = trackParam.trim().toUpperCase();
+          return;
+        }
+        if (rawHash.startsWith("track")) {
+          state.publicPortalMode = true;
+          const eqIdx = rawHash.indexOf("=");
+          state.publicTrackQuery = eqIdx >= 0 ? decodeURIComponent(rawHash.slice(eqIdx + 1)).trim().toUpperCase() : "";
+          return;
+        }
+        if (rawHash === "login") {
+          if (!state.isAuthenticated) {
+            state.publicPortalMode = false;
+          }
+          return;
+        }
+        if (state.isAuthenticated && rawHash && canAccess(rawHash)) {
+          state.publicPortalMode = false;
+          state.activeTab = rawHash;
+        }
+      } catch (e) {}
     }
 
     function renderExpiryBannerIfNeeded() {
@@ -783,6 +1130,58 @@
                       </div>
                     `).join("")}
                   </div>
+                  ${(() => {
+                    const mLabel = String(matched.paymentMethod || "");
+                    const matchedAcc = (biz.paymentAccounts || []).find(a => String(a.label || "").toLowerCase() === mLabel.toLowerCase());
+                    const isQris = mLabel.toUpperCase().includes("QRIS") || (matchedAcc && matchedAcc.methodType === "QRIS");
+                    const hasBankAcc = matchedAcc && matchedAcc.accountNumber && matchedAcc.accountNumber !== "-" && matchedAcc.accountNumber !== "Scan QRIS";
+                    const kasirWaRaw = String(biz.phone || pb.supportWhatsApp || "").replace(/\D/g, "");
+                    const kasirWaNum = kasirWaRaw.startsWith("0") ? ("62" + kasirWaRaw.slice(1)) : kasirWaRaw;
+                    const confirmText = encodeURIComponent(
+                      `Halo Kasir *${biz.name}*,\nSaya *${matched.customerName}* ingin mengirimkan bukti screenshot (SS) pembayaran untuk konfirmasi order:\n\n` +
+                      `No. Invoice: *${matched.invoiceNumber}*\n` +
+                      `Total Tagihan: *${formatRupiah(matched.totalAmount)}*\n` +
+                      `Metode Bayar: *${matched.paymentMethod || "-"}*\n\n` +
+                      `Berikut saya lampirkan bukti SS pembayarannya:`
+                    );
+                    const confirmWaHref = kasirWaNum ? `https://wa.me/${kasirWaNum}?text=${confirmText}` : `https://wa.me/?text=${confirmText}`;
+
+                    if (isQris && biz.qrisImageUrl) {
+                      return `
+                        <div class="border-t border-slate-200 pt-3 text-center space-y-2">
+                          <div class="text-xs font-bold text-slate-800">QRIS Pembayaran (DANA / e-Wallet / M-Banking)</div>
+                          <div class="text-[11px] text-slate-500">Scan kode QR di bawah ini untuk membayar tagihan</div>
+                          <img src="${escapeHtml(biz.qrisImageUrl)}" alt="QRIS Pembayaran" class="w-40 h-40 mx-auto object-contain rounded-xl bg-white border border-slate-200 p-1.5" />
+                          <div class="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-medium">
+                            Harap kirim bukti screenshot (SS) pembayaran untuk konfirmasi ke WhatsApp kasir ketika sudah transfer / bayar.
+                          </div>
+                          <a href="${confirmWaHref}" target="_blank" rel="noopener noreferrer"
+                            class="inline-flex items-center justify-center w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm">
+                            Konfirmasi Pembayaran ke WA Kasir
+                          </a>
+                        </div>
+                      `;
+                    }
+                    if (hasBankAcc) {
+                      return `
+                        <div class="border-t border-slate-200 pt-3 space-y-2">
+                          <div class="p-3 rounded-xl bg-white border border-slate-200 space-y-0.5 text-xs">
+                            <div class="font-bold text-slate-800">Rekening Pembayaran (${escapeHtml(matchedAcc.label)})</div>
+                            <div class="font-mono font-bold text-sm text-blue-700">${escapeHtml(matchedAcc.accountNumber)}</div>
+                            <div class="text-slate-500">a.n ${escapeHtml(matchedAcc.accountHolder)}</div>
+                          </div>
+                          <div class="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-medium">
+                            Harap kirim bukti screenshot (SS) pembayaran untuk konfirmasi ke WhatsApp kasir ketika sudah transfer.
+                          </div>
+                          <a href="${confirmWaHref}" target="_blank" rel="noopener noreferrer"
+                            class="inline-flex items-center justify-center w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm">
+                            Konfirmasi Pembayaran ke WA Kasir
+                          </a>
+                        </div>
+                      `;
+                    }
+                    return "";
+                  })()}
                 </div>
               ` : ""}
             </div>
@@ -806,35 +1205,31 @@
                   ? `<img src="${escapeHtml(pb.logoUrl)}" alt="${escapeHtml(pb.platformName)}" class="w-14 h-14 mx-auto rounded-2xl object-contain border border-slate-200 p-1.5 bg-slate-50" />`
                   : `<div class="w-14 h-14 mx-auto rounded-2xl theme-primary-bg text-white flex items-center justify-center font-extrabold text-xl shadow-sm">SL</div>`
                 }
-                <h1 class="text-xl font-extrabold text-slate-900">${escapeHtml(pb.platformName)}</h1>
+                <h1 class="text-xl font-bold text-slate-900">${escapeHtml(pb.platformName)}</h1>
                 <p class="text-xs text-slate-500">Masuk menggunakan akun sesuai hak akses Anda</p>
-                <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${state.firebaseConnected ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}">
-                  <span class="w-2 h-2 rounded-full ${state.firebaseConnected ? "bg-emerald-500" : "bg-amber-500"}"></span>
-                  ${escapeHtml(state.firebaseStatusNote)}
-                </div>
               </div>
 
               <div class="space-y-4">
                 <div>
-                  <label class="block text-xs font-bold text-slate-700 mb-1.5">Email / Username</label>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1.5">Email / Username</label>
                   <input type="text" id="login-email-input" autocomplete="username" placeholder="Masukkan email atau username"
                     class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-blue-500" />
                 </div>
                 <div>
-                  <label class="block text-xs font-bold text-slate-700 mb-1.5">Password</label>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1.5">Password</label>
                   <input type="password" id="login-password-input" autocomplete="current-password" placeholder="Masukkan password"
                     onkeydown="if(event.key==='Enter') window.appActions.loginWithCredentials()"
                     class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-blue-500" />
                 </div>
                 <button type="button" onclick="window.appActions.loginWithCredentials()"
-                  class="w-full py-3 rounded-xl theme-primary-bg text-white text-sm font-bold shadow-sm transition">
+                  class="w-full py-3 rounded-xl theme-primary-bg text-white text-sm font-semibold shadow-sm transition">
                   Masuk ke Sistem
                 </button>
               </div>
 
               <div class="pt-3 border-t border-slate-100 text-center">
                 <button type="button" onclick="window.appActions.openPublicPortal('')"
-                  class="text-xs font-bold theme-primary-text hover:underline">
+                  class="text-xs font-semibold theme-primary-text hover:underline">
                   Lacak Status Cucian Pelanggan (Tanpa Login)
                 </button>
               </div>
@@ -854,62 +1249,79 @@
       const expiringSoon = state.businesses.filter(b => getRemainingDays(b.expiresAt) <= 7).length;
 
       return `
-        <div class="space-y-6 animate-page">
+        <div class="space-y-5 animate-page">
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h1 class="text-xl font-extrabold text-slate-900">Dashboard Owner & Tenant</h1>
-              <p class="text-xs text-slate-500">Daftar pemilik usaha (Owner) dan tenant laundry pengguna ${escapeHtml(state.platformBranding.platformName)}</p>
+              <h1 class="text-xl font-bold app-text-main">Owner & Tenant</h1>
+              <p class="text-xs app-text-muted">Kelola akun Owner dan masa aktif outlet</p>
             </div>
             <button type="button" onclick="window.appActions.openOwnerFormModal(null)"
-              class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-bold">
-              + Daftarkan Owner & Tenant
+              class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold inline-flex items-center gap-2">
+              ${renderIcon("plus", "w-4 h-4", true)}
+              <span>Tambah Owner</span>
             </button>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div class="surface-card p-5 rounded-2xl border border-slate-200/80">
-              <div class="text-xs font-semibold text-slate-500">Total Akun Owner</div>
-              <div class="text-2xl font-extrabold text-slate-900 mt-1">${totalOwners}</div>
+            <div class="surface-card p-5 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium app-text-muted">Owner</div>
+                <div class="text-2xl font-bold app-text-main mt-1">${totalOwners}</div>
+              </div>
+              <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">${renderIcon("customers", "w-5 h-5")}</div>
             </div>
-            <div class="surface-card p-5 rounded-2xl border border-slate-200/80">
-              <div class="text-xs font-semibold text-slate-500">Total Tenant / Cabang</div>
-              <div class="text-2xl font-extrabold text-slate-900 mt-1">${totalBusinesses}</div>
+            <div class="surface-card p-5 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium app-text-muted">Tenant</div>
+                <div class="text-2xl font-bold app-text-main mt-1">${totalBusinesses}</div>
+              </div>
+              <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">${renderIcon("saas", "w-5 h-5")}</div>
             </div>
-            <div class="surface-card p-5 rounded-2xl border border-slate-200/80">
-              <div class="text-xs font-semibold text-slate-500">Masa Aktif ≤ 7 Hari</div>
-              <div class="text-2xl font-extrabold text-amber-600 mt-1">${expiringSoon}</div>
+            <div class="surface-card p-5 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium app-text-muted">Masa Aktif ≤ 7 Hr</div>
+                <div class="text-2xl font-bold text-amber-600 mt-1">${expiringSoon}</div>
+              </div>
+              <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">${renderIcon("help", "w-5 h-5")}</div>
             </div>
           </div>
 
           <div class="surface-card rounded-2xl border border-slate-200/80 overflow-hidden">
-            <div class="p-4 border-b border-slate-100 font-bold text-sm text-slate-900">Daftar Owner & Tenant Aktif</div>
+            <div class="p-4 border-b border-slate-100 font-semibold text-sm app-text-main">Daftar Owner</div>
             <div class="divide-y divide-slate-100">
               ${state.owners.map(own => {
-                const biz = state.businesses.find(b => b.id === own.businessId) || {};
+                const ownedBizList = getOwnerBusinesses(own.id);
+                const biz = ownedBizList[0] || state.businesses.find(b => b.id === own.businessId) || {};
+                const quota = getOwnerBranchQuota(own.id);
                 const daysLeft = getRemainingDays(own.expiresAt || biz.expiresAt);
+                const ownedIds = ownedBizList.map(b => b.id);
+                const adminCount = state.employees.filter(e => ownedIds.includes(e.businessId) && e.role === "ADMIN").length;
+                const staffCount = state.employees.filter(e => ownedIds.includes(e.businessId) && e.role !== "ADMIN").length;
                 return `
                   <div class="p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                     <div class="space-y-1">
                       <div class="flex items-center gap-2 flex-wrap">
-                        <span class="font-extrabold text-sm text-slate-900">${escapeHtml(own.name)}</span>
-                        <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700">${escapeHtml(own.role || "OWNER")}</span>
-                        <span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${daysLeft <= 7 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}">
-                          Sisa ${daysLeft} hari (${escapeHtml(own.expiresAt || biz.expiresAt || "-")})
+                        <span class="font-bold text-sm app-text-main">${escapeHtml(own.name)}</span>
+                        <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700">OWNER</span>
+                        <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700">
+                          ${ownedBizList.length}/${quota} Cabang
+                        </span>
+                        <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold ${daysLeft <= 7 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}">
+                          ${daysLeft} hari (${escapeHtml(own.expiresAt || biz.expiresAt || "-")})
                         </span>
                       </div>
-                      <div class="text-xs text-slate-600">
-                        Tenant: <strong>${escapeHtml(biz.name || own.businessId)}</strong> • Paket: <strong>${escapeHtml(biz.plan || "STARTER")}</strong>
+                      <div class="text-xs app-text-muted">
+                        ${escapeHtml(biz.name || own.businessId)} • Paket ${escapeHtml(biz.plan || "STARTER")} • ${escapeHtml(own.email)} • ${adminCount} Admin, ${staffCount} Staf
                       </div>
-                      <div class="text-xs text-slate-400">Email: ${escapeHtml(own.email)} • WA: ${escapeHtml(own.phone || "-")}</div>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
                       <button type="button" onclick="window.appActions.extendOwnerSubscription('${escapeHtml(own.id)}', 30)"
-                        class="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100">
+                        class="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100">
                         +30 Hari
                       </button>
                       <button type="button" onclick="window.appActions.openOwnerFormModal('${escapeHtml(own.id)}')"
-                        class="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200">
-                        Edit & Masa Aktif
+                        class="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200">
+                        Edit
                       </button>
                     </div>
                   </div>
@@ -935,45 +1347,58 @@
       const activeQueue = orders.filter(o => o.status !== "COMPLETED").length;
 
       return `
-        <div class="space-y-6 animate-page">
+        <div class="space-y-5 animate-page">
           ${renderExpiryBannerIfNeeded()}
 
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h1 class="text-xl font-extrabold text-slate-900">Dashboard ${escapeHtml(getCurrentBusiness().name)}</h1>
-              <p class="text-xs text-slate-500">Ringkasan operasional & keuangan (${escapeHtml(role)})</p>
+              <h1 class="text-xl font-bold app-text-main">${escapeHtml(getCurrentBusiness().name)}</h1>
+              <p class="text-xs app-text-muted">Ringkasan ${escapeHtml(role)}</p>
             </div>
             ${role !== "OPERATOR" ? `
               <button type="button" onclick="window.appActions.switchTab('pos')"
-                class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-bold">
-                + Kasir Quick Order
+                class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold inline-flex items-center gap-2">
+                ${renderIcon("plus", "w-4 h-4", true)}
+                <span>Order Baru</span>
               </button>
             ` : ""}
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            <div class="surface-card p-5 rounded-2xl border border-slate-200/80">
-              <div class="text-xs font-semibold text-slate-500">Antrean Aktif</div>
-              <div class="text-2xl font-extrabold text-slate-900 mt-1">${activeQueue} Order</div>
+            <div class="surface-card p-5 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium app-text-muted">Antrean</div>
+                <div class="text-xl font-bold app-text-main mt-1">${activeQueue}</div>
+              </div>
+              <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">${renderIcon("orders", "w-5 h-5")}</div>
             </div>
-            <div class="surface-card p-5 rounded-2xl border border-slate-200/80">
-              <div class="text-xs font-semibold text-slate-500">Total Pembayaran Masuk</div>
-              <div class="text-2xl font-extrabold text-emerald-600 mt-1">${formatRupiah(totalRevenue)}</div>
+            <div class="surface-card p-5 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium app-text-muted">Pemasukan</div>
+                <div class="text-xl font-bold text-emerald-600 mt-1">${formatRupiah(totalRevenue)}</div>
+              </div>
+              <div class="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">${renderIcon("payments", "w-5 h-5")}</div>
             </div>
-            <div class="surface-card p-5 rounded-2xl border border-slate-200/80">
-              <div class="text-xs font-semibold text-slate-500">Total Pengeluaran</div>
-              <div class="text-2xl font-extrabold text-rose-600 mt-1">${formatRupiah(totalExpense)}</div>
+            <div class="surface-card p-5 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium app-text-muted">Pengeluaran</div>
+                <div class="text-xl font-bold text-rose-600 mt-1">${formatRupiah(totalExpense)}</div>
+              </div>
+              <div class="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center">${renderIcon("expenses", "w-5 h-5")}</div>
             </div>
-            <div class="surface-card p-5 rounded-2xl border border-slate-200/80">
-              <div class="text-xs font-semibold text-slate-500">Saldo Buku Kas</div>
-              <div class="text-2xl font-extrabold text-slate-900 mt-1">${formatRupiah(cashIn - cashOut)}</div>
+            <div class="surface-card p-5 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium app-text-muted">Saldo Kas</div>
+                <div class="text-xl font-bold app-text-main mt-1">${formatRupiah(cashIn - cashOut)}</div>
+              </div>
+              <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">${renderIcon("reports", "w-5 h-5")}</div>
             </div>
           </div>
 
           <div class="surface-card rounded-2xl border border-slate-200/80 p-5">
             <div class="flex items-center justify-between mb-3">
-              <h2 class="font-bold text-sm text-slate-900">Order Terbaru</h2>
-              <button type="button" onclick="window.appActions.switchTab('orders')" class="text-xs font-bold theme-primary-text">Lihat Semua</button>
+              <h2 class="font-semibold text-sm app-text-main">Order Terbaru</h2>
+              <button type="button" onclick="window.appActions.switchTab('orders')" class="text-xs font-semibold theme-primary-text">Semua</button>
             </div>
             <div class="space-y-2.5">
               ${orders.slice(0, 5).map(o => {
@@ -981,10 +1406,10 @@
                 return `
                   <div class="p-3 rounded-xl bg-slate-50 flex items-center justify-between gap-3">
                     <div>
-                      <div class="text-xs font-mono font-bold text-slate-500">${escapeHtml(o.invoiceNumber)}</div>
-                      <div class="text-sm font-bold text-slate-900">${escapeHtml(o.customerName)}</div>
+                      <div class="text-xs font-mono font-semibold app-text-muted">${escapeHtml(o.invoiceNumber)}</div>
+                      <div class="text-sm font-bold app-text-main">${escapeHtml(o.customerName)}</div>
                     </div>
-                    <span class="px-2.5 py-1 rounded-full text-xs font-bold ${st.badgeClass}">${escapeHtml(st.label)}</span>
+                    <span class="px-2.5 py-1 rounded-full text-xs font-semibold ${st.badgeClass}">${escapeHtml(st.label)}</span>
                   </div>
                 `;
               }).join("")}
@@ -995,29 +1420,36 @@
     }
 
     function renderPosView() {
+      const biz = getCurrentBusiness();
       const services = getScopedServices();
       const customers = getScopedCustomers();
       const subtotal = state.quickCart.reduce((s, item) => s + Number(item.subtotal || 0), 0);
       const paidNow = Math.min(subtotal, Math.max(0, Number(state.quickPaidAmount || 0)));
+      const payAccounts = Array.isArray(biz.paymentAccounts) && biz.paymentAccounts.length
+        ? biz.paymentAccounts
+        : [
+            { id: "acc_def_cash", methodType: "CASH", label: "Tunai (CASH)", accountNumber: "-", accountHolder: "Kasir" },
+            { id: "acc_def_qris", methodType: "QRIS", label: "QRIS", accountNumber: "Scan QRIS", accountHolder: biz.name }
+          ];
 
       return `
-        <div class="space-y-6 animate-page">
+        <div class="space-y-5 animate-page">
           ${renderExpiryBannerIfNeeded()}
           <div class="flex items-center justify-between">
             <div>
-              <h1 class="text-xl font-extrabold text-slate-900">Kasir Quick Order</h1>
-              <p class="text-xs text-slate-500">Buat transaksi laundry cepat dan cetak nota</p>
+              <h1 class="text-xl font-bold app-text-main">Kasir Quick Order</h1>
+              <p class="text-xs app-text-muted">Buat transaksi laundry dan nota pelanggan</p>
             </div>
           </div>
 
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div class="lg:col-span-2 surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
-              <div class="font-bold text-sm text-slate-900">Pilih Layanan</div>
+              <div class="font-semibold text-sm app-text-main">Pilih Layanan</div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 ${services.map(srv => `
                   <button type="button" onclick="window.appActions.addToQuickCart('${escapeHtml(srv.id)}')"
                     class="p-4 rounded-2xl border border-slate-200 hover:border-blue-500 text-left transition bg-white">
-                    <div class="font-bold text-sm text-slate-900">${escapeHtml(srv.name)}</div>
+                    <div class="font-semibold text-sm text-slate-900">${escapeHtml(srv.name)}</div>
                     <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(srv.category)} • ${formatRupiah(srv.price)} / ${escapeHtml(srv.unit)}</div>
                   </button>
                 `).join("")}
@@ -1025,15 +1457,24 @@
             </div>
 
             <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
-              <div class="font-bold text-sm text-slate-900">Keranjang Order</div>
+              <div class="font-semibold text-sm app-text-main">Keranjang Order</div>
 
               <div>
-                <label class="block text-xs font-bold text-slate-700 mb-1">Pelanggan</label>
-                <select id="pos-customer-select" onchange="window.appActions.setQuickCustomer(this.value)"
-                  class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white">
-                  <option value="">-- Pilih Pelanggan --</option>
-                  ${customers.map(c => `<option value="${escapeHtml(c.id)}" ${state.quickCustomerId === c.id ? "selected" : ""}>${escapeHtml(c.name)} (${escapeHtml(c.phone)})</option>`).join("")}
-                </select>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-xs font-semibold text-slate-700">Pelanggan</label>
+                  <button type="button" onclick="window.appActions.openAddCustomerModal(true)"
+                    class="text-[11px] font-semibold theme-primary-text hover:underline inline-flex items-center gap-1">
+                    ${renderIcon("plus", "w-3.5 h-3.5")}
+                    <span>Pelanggan Baru</span>
+                  </button>
+                </div>
+                ${renderCustomDropdown({
+                  id: "pos-customer-dd",
+                  value: state.quickCustomerId,
+                  placeholder: "Pilih Pelanggan...",
+                  options: customers.map(c => ({ value: c.id, label: c.name, sub: c.phone })),
+                  onSelectFn: "setQuickCustomer"
+                })}
               </div>
 
               <div class="space-y-2 max-h-52 overflow-y-auto">
@@ -1042,11 +1483,11 @@
                   : state.quickCart.map((item, idx) => `
                     <div class="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between gap-2 text-xs">
                       <div>
-                        <div class="font-bold text-slate-800">${escapeHtml(item.name)}</div>
+                        <div class="font-semibold text-slate-800">${escapeHtml(item.name)}</div>
                         <div class="text-slate-500">${item.qty} ${escapeHtml(item.unit)} × ${formatRupiah(item.price)}</div>
                       </div>
                       <div class="flex items-center gap-1.5">
-                        <span class="font-bold text-slate-900">${formatRupiah(item.subtotal)}</span>
+                        <span class="font-semibold text-slate-900">${formatRupiah(item.subtotal)}</span>
                         <button type="button" onclick="window.appActions.removeCartItem(${idx})" class="px-2 py-1 rounded-lg bg-rose-50 text-rose-600 font-bold">×</button>
                       </div>
                     </div>
@@ -1054,34 +1495,45 @@
                 }
               </div>
 
-              <div class="border-t border-slate-100 pt-3 space-y-2 text-xs">
+              <div class="border-t border-slate-100 pt-3 space-y-2.5 text-xs">
                 <div class="flex justify-between font-bold text-slate-900 text-sm">
                   <span>Total Tagihan</span>
                   <span>${formatRupiah(subtotal)}</span>
                 </div>
                 <div>
-                  <label class="block font-bold text-slate-700 mb-1">Pembayaran Awal (Rp)</label>
+                  <label class="block font-semibold text-slate-700 mb-1">Pembayaran Awal (Rp)</label>
                   <input type="number" id="pos-paid-input" value="${paidNow}" oninput="window.appActions.setQuickPaid(this.value)"
                     class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs" />
                 </div>
                 <div>
-                  <label class="block font-bold text-slate-700 mb-1">Metode Bayar</label>
-                  <select id="pos-method-select" onchange="window.appActions.setQuickMethod(this.value)"
-                    class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white">
-                    <option value="CASH" ${state.quickPaymentMethod === "CASH" ? "selected" : ""}>Tunai (CASH)</option>
-                    <option value="QRIS" ${state.quickPaymentMethod === "QRIS" ? "selected" : ""}>QRIS</option>
-                    <option value="TRANSFER" ${state.quickPaymentMethod === "TRANSFER" ? "selected" : ""}>Transfer Bank</option>
-                  </select>
+                  <label class="block font-semibold text-slate-700 mb-1">Metode Bayar</label>
+                  ${renderCustomDropdown({
+                    id: "pos-method-dd",
+                    value: state.quickPaymentMethod,
+                    placeholder: "Pilih Metode Bayar",
+                    options: payAccounts.map(acc => ({
+                      value: acc.label,
+                      label: acc.label,
+                      sub: acc.accountNumber && acc.accountNumber !== "-" && acc.accountNumber !== "Scan QRIS" ? `${acc.accountNumber} • a.n ${acc.accountHolder}` : ""
+                    })),
+                    onSelectFn: "setQuickMethod"
+                  })}
                 </div>
+                ${String(state.quickPaymentMethod || "").toUpperCase().includes("QRIS") && biz.qrisImageUrl ? `
+                  <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-1">
+                    <div class="text-[11px] font-semibold text-slate-700">Scan QRIS Pembayaran</div>
+                    <img src="${escapeHtml(biz.qrisImageUrl)}" alt="QRIS" class="w-32 h-32 mx-auto object-contain rounded-lg bg-white p-1 border border-slate-200" />
+                  </div>
+                ` : ""}
                 <div>
-                  <label class="block font-bold text-slate-700 mb-1">Catatan</label>
+                  <label class="block font-semibold text-slate-700 mb-1">Catatan</label>
                   <input type="text" id="pos-notes-input" value="${escapeHtml(state.quickNotes)}" oninput="window.appActions.setQuickNotes(this.value)"
                     placeholder="Catatan cucian..." class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs" />
                 </div>
               </div>
 
               <button type="button" onclick="window.appActions.submitQuickOrder()"
-                class="w-full py-3 rounded-xl theme-primary-bg text-white text-xs font-bold">
+                class="w-full py-3 rounded-xl theme-primary-bg text-white text-xs font-semibold">
                 Simpan Order & Buat Nota
               </button>
             </div>
@@ -1092,22 +1544,25 @@
 
     function renderOrdersView() {
       const role = state.currentUser?.role;
-      const list = getScopedOrders().filter(o => {
-        const matchStatus = state.orderFilter === "ALL" || o.status === state.orderFilter;
+      const activeFilter = normalizeOrderStatus(state.orderFilter || "ALL");
+      const allScoped = getScopedOrders();
+      const list = allScoped.filter(o => {
+        const ordStatus = normalizeOrderStatus(o.status);
+        const matchStatus = activeFilter === "ALL" || ordStatus === activeFilter;
         const q = (state.searchOrder || "").trim().toLowerCase();
-        const matchQuery = !q || String(o.invoiceNumber).toLowerCase().includes(q) || String(o.customerName).toLowerCase().includes(q);
+        const matchQuery = !q || String(o.invoiceNumber || "").toLowerCase().includes(q) || String(o.customerName || "").toLowerCase().includes(q);
         return matchStatus && matchQuery;
       });
 
-      const focused = state.selectedOrderId ? list.find(o => o.id === state.selectedOrderId) || getScopedOrders().find(o => o.id === state.selectedOrderId) : null;
+      const focused = state.selectedOrderId ? allScoped.find(o => o.id === state.selectedOrderId) : null;
 
       return `
-        <div class="space-y-6 animate-page">
+        <div class="space-y-5 animate-page">
           ${renderExpiryBannerIfNeeded()}
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h1 class="text-xl font-extrabold text-slate-900">Order Laundry</h1>
-              <p class="text-xs text-slate-500">Daftar invoice dan progres pengerjaan cucian</p>
+              <h1 class="text-xl font-bold app-text-main">Order Laundry</h1>
+              <p class="text-xs app-text-muted">Daftar invoice dan status cucian</p>
             </div>
             <input type="text" value="${escapeHtml(state.searchOrder)}" oninput="window.appActions.setOrderSearch(this.value)"
               placeholder="Cari invoice atau nama..." class="px-3.5 py-2 rounded-xl border border-slate-200 text-xs bg-white w-full sm:w-64" />
@@ -1116,10 +1571,14 @@
           <div class="flex gap-2 overflow-x-auto pb-1 no-print">
             ${["ALL", "RECEIVED", "WASHING", "DRYING", "IRONING", "READY", "COMPLETED"].map(st => {
               const label = st === "ALL" ? "Semua" : (state.statusSettings[st]?.label || st);
+              const count = st === "ALL"
+                ? allScoped.length
+                : allScoped.filter(o => normalizeOrderStatus(o.status) === st).length;
               return `
                 <button type="button" onclick="window.appActions.setOrderFilter('${st}')"
-                  class="px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 ${state.orderFilter === st ? "theme-primary-bg text-white" : "bg-white border border-slate-200 text-slate-700"}">
-                  ${escapeHtml(label)}
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 inline-flex items-center gap-1.5 ${activeFilter === st ? "theme-primary-bg theme-btn-active text-white" : "bg-white border border-slate-200 text-slate-700"}">
+                  <span>${escapeHtml(label)}</span>
+                  <span class="px-1.5 py-0.2 rounded-full text-[10px] ${activeFilter === st ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"}">${count}</span>
                 </button>
               `;
             }).join("")}
@@ -1129,11 +1588,11 @@
             <div class="surface-card rounded-2xl border-2 border-blue-500 p-5 space-y-4">
               <div class="flex items-center justify-between gap-2">
                 <div>
-                  <div class="text-xs font-mono font-bold text-slate-500">${escapeHtml(focused.invoiceNumber)}</div>
-                  <div class="text-lg font-extrabold text-slate-900">${escapeHtml(focused.customerName)}</div>
+                  <div class="text-xs font-mono font-semibold text-slate-500">${escapeHtml(focused.invoiceNumber)}</div>
+                  <div class="text-lg font-bold text-slate-900">${escapeHtml(focused.customerName)}</div>
                 </div>
                 <button type="button" onclick="window.appActions.selectOrderDetail(null)"
-                  class="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold">
+                  class="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold">
                   Tutup Detail
                 </button>
               </div>
@@ -1146,44 +1605,61 @@
                 ${(focused.items || []).map(it => `
                   <div class="flex justify-between text-xs text-slate-700">
                     <span>${escapeHtml(it.name)} (${it.qty} ${escapeHtml(it.unit)})</span>
-                    <span class="font-bold">${formatRupiah(it.subtotal)}</span>
+                    <span class="font-semibold">${formatRupiah(it.subtotal)}</span>
                   </div>
                 `).join("")}
               </div>
               <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
-                <label class="text-xs font-bold text-slate-700">Update Status:</label>
-                <select onchange="window.appActions.updateOrderStatus('${escapeHtml(focused.id)}', this.value)"
-                  class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white font-semibold">
-                  ${Object.keys(state.statusSettings).map(k => `
-                    <option value="${k}" ${focused.status === k ? "selected" : ""}>${escapeHtml(state.statusSettings[k].label)}</option>
-                  `).join("")}
-                </select>
+                <label class="text-xs font-semibold text-slate-700">Update Status:</label>
+                <div class="w-44">
+                  ${renderCustomDropdown({
+                    id: "order-status-dd",
+                    value: normalizeOrderStatus(focused.status),
+                    placeholder: "Pilih Status",
+                    options: Object.keys(state.statusSettings).map(k => ({
+                      value: k,
+                      label: state.statusSettings[k].label
+                    })),
+                    onSelectFn: "updateFocusedOrderStatus"
+                  })}
+                </div>
                 <button type="button" onclick="window.appActions.openReceiptModal('${escapeHtml(focused.id)}')"
-                  class="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold">
-                  Nota & QR Code
+                  class="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold">
+                  Nota & Share WA
                 </button>
                 ${role !== "OPERATOR" ? `
                   <button type="button" onclick="window.appActions.openPublicPortal('${escapeHtml(focused.invoiceNumber)}')"
-                    class="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 text-xs font-bold">
-                    Buka Link Pelanggan
+                    class="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 text-xs font-semibold">
+                    Link Pelanggan
                   </button>
                 ` : ""}
               </div>
             </div>
+          ` : list.length === 0 ? `
+            <div class="surface-card p-8 rounded-2xl border border-slate-200/80 text-center text-xs app-text-muted">
+              Tidak ada order pada status ini.
+            </div>
           ` : `
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              ${list.map(o => `
-                <div class="surface-card p-4 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-3">
-                  <div>
-                    <div class="text-xs font-mono font-bold text-slate-500">${escapeHtml(o.invoiceNumber)}</div>
-                    <div class="text-sm font-extrabold text-slate-900">${escapeHtml(o.customerName)}</div>
+              ${list.map(o => {
+                const normSt = normalizeOrderStatus(o.status);
+                const stInfo = state.statusSettings[normSt] || { label: o.status, badgeClass: "bg-slate-100 text-slate-700" };
+                return `
+                  <div class="surface-card p-4 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-3">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs font-mono font-semibold text-slate-500">${escapeHtml(o.invoiceNumber)}</span>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${stInfo.badgeClass}">${escapeHtml(stInfo.label)}</span>
+                      </div>
+                      <div class="text-sm font-bold text-slate-900 mt-0.5">${escapeHtml(o.customerName)}</div>
+                    </div>
+                    <button type="button" onclick="window.appActions.selectOrderDetail('${escapeHtml(o.id)}')"
+                      class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold">
+                      Detail
+                    </button>
                   </div>
-                  <button type="button" onclick="window.appActions.selectOrderDetail('${escapeHtml(o.id)}')"
-                    class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold">
-                    Detail
-                  </button>
-                </div>
-              `).join("")}
+                `;
+              }).join("")}
             </div>
           `}
         </div>
@@ -1444,34 +1920,126 @@
 
     function renderEmployeesView() {
       if (state.currentUser?.role !== "OWNER") {
-        return `<div class="p-6 rounded-2xl bg-rose-50 text-rose-700 text-sm font-bold">Hanya role Owner yang dapat mengakses manajemen karyawan.</div>`;
+        return `<div class="p-6 rounded-2xl bg-rose-50 text-rose-700 text-sm font-bold">Hanya role Owner yang dapat mengelola Admin, Kasir, dan Operator di bawah naungannya.</div>`;
       }
       const list = getScopedEmployees();
+      const ownedBranches = getOwnerBusinesses(state.currentUser.id);
+      const maxBranches = getOwnerBranchQuota(state.currentUser.id);
+      const remainingBranchSlots = Math.max(0, maxBranches - ownedBranches.length);
+      const adminCount = list.filter(e => e.role === "ADMIN").length;
+      const staffCount = list.filter(e => e.role !== "ADMIN").length;
+
       return `
         <div class="space-y-6 animate-page">
           ${renderExpiryBannerIfNeeded()}
-          <div class="flex items-center justify-between">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h1 class="text-xl font-extrabold text-slate-900">Karyawan</h1>
-              <p class="text-xs text-slate-500">Kelola akun login Kasir, Operator, dan Admin cabang</p>
+              <h1 class="text-xl font-bold app-text-main">Cabang, Admin & Karyawan</h1>
+              <p class="text-xs app-text-muted">Kuota Paket Owner: ${ownedBranches.length} dari ${maxBranches} cabang aktif (${adminCount} Admin, ${staffCount} Staf)</p>
             </div>
-            <button type="button" onclick="window.appActions.openAddEmployeeModal()"
-              class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold">
-              + Karyawan
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+              ${remainingBranchSlots > 0 ? `
+                <button type="button" onclick="window.appActions.openNewBranchAdminModal()"
+                  class="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold inline-flex items-center gap-2">
+                  ${renderIcon("plus", "w-4 h-4", true)}
+                  <span>Daftarkan Cabang & Admin (${remainingBranchSlots} Slot)</span>
+                </button>
+              ` : `
+                <button type="button" onclick="window.appActions.openBuyBranchPackageModal()"
+                  class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold inline-flex items-center gap-2">
+                  ${renderIcon("saas", "w-4 h-4", true)}
+                  <span>Beli Paket Cabang & Admin Baru</span>
+                </button>
+              `}
+              <button type="button" onclick="window.appActions.openEmployeeFormModal(null)"
+                class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold inline-flex items-center gap-2">
+                ${renderIcon("plus", "w-4 h-4", true)}
+                <span>Tambah Staf / Admin</span>
+              </button>
+            </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            ${list.map(emp => `
-              <div class="surface-card p-4 rounded-2xl border border-slate-200/80 flex items-center justify-between">
-                <div>
-                  <div class="font-bold text-sm text-slate-900">${escapeHtml(emp.name)}</div>
-                  <div class="text-xs text-slate-500">${escapeHtml(emp.email)} • ${escapeHtml(emp.phone || "-")}</div>
-                </div>
-                <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">${escapeHtml(emp.role)}</span>
-              </div>
-            `).join("")}
+          <div class="surface-card rounded-2xl border border-slate-200/80 p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold text-xs text-slate-800 uppercase tracking-wider">Daftar Cabang Milik Owner (${ownedBranches.length}/${maxBranches})</div>
+              ${remainingBranchSlots === 0 ? `<span class="text-[11px] font-semibold text-amber-700">Slot cabang penuh — beli paket ke Super Admin untuk menambah cabang & Admin baru</span>` : ""}
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              ${ownedBranches.map(b => {
+                const branchAdmins = list.filter(e => e.businessId === b.id && e.role === "ADMIN");
+                const isSelected = getCurrentBusiness().id === b.id;
+                return `
+                  <div class="p-3.5 rounded-xl border ${isSelected ? "border-blue-500 bg-blue-50/40" : "border-slate-200 bg-slate-50/50"} flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-bold text-xs text-slate-900 truncate">${escapeHtml(b.name)}</span>
+                        ${isSelected ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">Aktif</span>` : ""}
+                      </div>
+                      <div class="text-[11px] text-slate-500 mt-0.5 truncate">
+                        Admin: ${branchAdmins.length ? escapeHtml(branchAdmins.map(a => a.name).join(", ")) : "Belum ada Admin"}
+                      </div>
+                    </div>
+                    ${!isSelected ? `
+                      <button type="button" onclick="window.appActions.switchOwnerBranch('${escapeHtml(b.id)}')"
+                        class="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 shrink-0">
+                        Kelola
+                      </button>
+                    ` : ""}
+                  </div>
+                `;
+              }).join("")}
+            </div>
           </div>
+
+          ${list.length === 0 ? `
+            <div class="surface-card p-8 rounded-2xl border border-slate-200/80 text-center text-xs app-text-muted">
+              Belum ada Admin, Kasir, atau Operator terdaftar.
+            </div>
+          ` : `
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              ${list.map(emp => {
+                const isActive = emp.active !== false;
+                const branchObj = ownedBranches.find(b => b.id === emp.businessId) || getCurrentBusiness();
+                const roleBadge = emp.role === "ADMIN"
+                  ? "bg-purple-50 text-purple-700 border border-purple-200"
+                  : emp.role === "KASIR"
+                    ? "bg-blue-50 text-blue-700 border border-blue-200"
+                    : "bg-cyan-50 text-cyan-700 border border-cyan-200";
+                return `
+                  <div class="surface-card p-4 rounded-2xl border border-slate-200/80 flex flex-col justify-between gap-3 ${!isActive ? "opacity-75" : ""}">
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <span class="font-bold text-sm text-slate-900 truncate">${escapeHtml(emp.name)}</span>
+                          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold ${roleBadge}">${escapeHtml(emp.role)}</span>
+                        </div>
+                        <div class="text-[11px] font-semibold text-blue-700 mt-1 truncate">Cabang: ${escapeHtml(branchObj.name)}</div>
+                        <div class="text-xs text-slate-500 mt-0.5 truncate">${escapeHtml(emp.email)} • ${escapeHtml(emp.phone || "-")}</div>
+                      </div>
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ${isActive ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}">
+                        ${isActive ? "Aktif" : "Nonaktif"}
+                      </span>
+                    </div>
+
+                    <div class="flex items-center gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <button type="button" onclick="window.appActions.openEmployeeFormModal('${escapeHtml(emp.id)}')"
+                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold">
+                        Edit
+                      </button>
+                      <button type="button" onclick="window.appActions.toggleEmployeeActive('${escapeHtml(emp.id)}')"
+                        class="px-3 py-1.5 rounded-xl ${isActive ? "bg-amber-50 hover:bg-amber-100 text-amber-800" : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700"} font-semibold">
+                        ${isActive ? "Nonaktifkan" : "Aktifkan"}
+                      </button>
+                      <button type="button" onclick="window.appActions.deleteEmployee('${escapeHtml(emp.id)}')"
+                        class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold ml-auto">
+                        Hapus
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          `}
         </div>
       `;
     }
@@ -1483,28 +2051,42 @@
 
       const pb = Object.assign({}, DEFAULT_PLATFORM_BRANDING, state.platformBranding || {});
       const editingPlan = state.editingPlanId ? state.pricingPlans.find(p => p.id === state.editingPlanId) : null;
+      const guideRole = state.editingGuideRole || "KASIR";
+      const currentGuideLines = (state.roleGuides && state.roleGuides[guideRole]) || [];
+
+      const colorFields = [
+        { key: "primaryColor", label: "Warna Utama" },
+        { key: "btnColor", label: "Warna Tombol" },
+        { key: "btnActiveColor", label: "Tombol Aktif" },
+        { key: "textColor", label: "Warna Teks" },
+        { key: "textMutedColor", label: "Teks Sekunder" },
+        { key: "iconColor", label: "Warna Icon" },
+        { key: "bgColor", label: "Background Web" },
+        { key: "surfaceColor", label: "Warna Card" },
+        { key: "sidebarColor", label: "Warna Sidebar" }
+      ];
 
       return `
-        <div class="space-y-6 animate-page">
+        <div class="space-y-5 animate-page">
           <div>
-            <h1 class="text-xl font-extrabold text-slate-900">Super Admin SaaS</h1>
-            <p class="text-xs text-slate-500">Kelola paket langganan, warna global, logo, favicon, dan footer web</p>
+            <h1 class="text-xl font-bold app-text-main">Super Admin SaaS</h1>
+            <p class="text-xs app-text-muted">Paket harga, tampilan warna HEX, icon & identitas web</p>
           </div>
 
           <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
-            <div class="font-bold text-sm text-slate-900">Paket Harga Langganan</div>
+            <div class="font-semibold text-sm app-text-main">Paket Harga</div>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
               ${state.pricingPlans.map(plan => `
                 <div class="p-4 rounded-2xl border border-slate-200 flex flex-col justify-between gap-3">
                   <div>
-                    <div class="text-xs font-bold uppercase text-blue-600">${escapeHtml(plan.id)}</div>
-                    <div class="text-base font-extrabold text-slate-900">${escapeHtml(plan.name)}</div>
-                    <div class="text-lg font-extrabold text-slate-900 mt-1">${formatRupiah(plan.monthlyPrice)}<span class="text-xs font-normal text-slate-500">/bln</span></div>
-                    <div class="text-xs text-slate-500 mt-2">Maks ${plan.maxOrdersPerMonth} order/bln • Maks ${plan.maxStaff} staf</div>
+                    <div class="text-xs font-bold uppercase theme-primary-text">${escapeHtml(plan.id)}</div>
+                    <div class="text-base font-bold app-text-main">${escapeHtml(plan.name)}</div>
+                    <div class="text-lg font-bold app-text-main mt-1">${formatRupiah(plan.monthlyPrice)}<span class="text-xs font-normal app-text-muted">/bln</span></div>
+                    <div class="text-xs app-text-muted mt-1.5">${plan.maxOrdersPerMonth} order • ${plan.maxStaff} staf</div>
                   </div>
                   <button type="button" onclick="window.appActions.startEditPlan('${escapeHtml(plan.id)}')"
-                    class="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold">
-                    Edit Paket
+                    class="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold">
+                    Edit
                   </button>
                 </div>
               `).join("")}
@@ -1512,70 +2094,125 @@
 
             ${editingPlan ? `
               <div class="p-4 rounded-2xl bg-blue-50/60 border border-blue-200 space-y-3">
-                <div class="font-bold text-xs text-blue-900">Edit Paket: ${escapeHtml(editingPlan.id)}</div>
+                <div class="font-semibold text-xs text-blue-900">Edit Paket: ${escapeHtml(editingPlan.id)}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label class="block text-[11px] font-bold text-slate-700 mb-1">Nama Paket</label>
+                    <label class="block text-[11px] font-semibold text-slate-700 mb-1">Nama Paket</label>
                     <input type="text" id="edit-plan-name" value="${escapeHtml(editingPlan.name)}" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white" />
                   </div>
                   <div>
-                    <label class="block text-[11px] font-bold text-slate-700 mb-1">Harga / Bulan (Rp)</label>
+                    <label class="block text-[11px] font-semibold text-slate-700 mb-1">Harga / Bulan (Rp)</label>
                     <input type="number" id="edit-plan-price" value="${Number(editingPlan.monthlyPrice)}" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white" />
                   </div>
                   <div>
-                    <label class="block text-[11px] font-bold text-slate-700 mb-1">Maks Staf</label>
+                    <label class="block text-[11px] font-semibold text-slate-700 mb-1">Maks Staf</label>
                     <input type="number" id="edit-plan-staff" value="${Number(editingPlan.maxStaff)}" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white" />
                   </div>
                 </div>
                 <div class="flex gap-2">
                   <button type="button" onclick="window.appActions.savePlanEdit('${escapeHtml(editingPlan.id)}')"
-                    class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold">Simpan Paket</button>
+                    class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-semibold">Simpan</button>
                   <button type="button" onclick="window.appActions.startEditPlan(null)"
-                    class="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold">Batal</button>
+                    class="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-semibold">Batal</button>
                 </div>
               </div>
             ` : ""}
           </div>
 
-          <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
-            <div class="font-bold text-sm text-slate-900">Identitas Web, Warna Global & Footer</div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+          <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-5">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="font-semibold text-sm app-text-main">Tema Warna (HEX) & Gaya Icon</div>
+              <button type="button" onclick="window.appActions.resetPlatformColors()"
+                class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">
+                Reset Warna Default
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 text-xs">
+              ${colorFields.map(cf => {
+                const val = pb[cf.key] || "#2563eb";
+                return `
+                  <div class="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1.5">
+                    <label class="block font-semibold text-slate-700">${cf.label}</label>
+                    <div class="flex items-center gap-2">
+                      <input type="color" id="picker-${cf.key}" value="${escapeHtml(val)}"
+                        oninput="window.appActions.syncHexInput('${cf.key}', this.value)"
+                        class="w-9 h-9 rounded-lg border border-slate-200 p-0.5 cursor-pointer bg-white shrink-0" />
+                      <input type="text" id="hex-${cf.key}" value="${escapeHtml(val)}" maxlength="7" placeholder="#000000"
+                        oninput="window.appActions.syncPickerInput('${cf.key}', this.value)"
+                        class="w-full px-2.5 py-2 rounded-lg border border-slate-200 font-mono text-xs uppercase bg-white" />
+                    </div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs pt-2 border-t border-slate-100">
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Nama Platform</label>
+                <label class="block font-semibold text-slate-700 mb-1">Gaya Icon</label>
+                ${renderCustomDropdown({
+                  id: "pb-icon-style-dd",
+                  value: pb.iconStyle || "line",
+                  placeholder: "Pilih Gaya Icon",
+                  options: [
+                    { value: "line", label: "Line (Garis)", sub: "Outline modern tipis" },
+                    { value: "solid", label: "Solid (Isi)", sub: "Ikon penuh tegas" }
+                  ],
+                  onSelectFn: "previewIconStyle"
+                })}
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Nama Web</label>
                 <input type="text" id="pb-name" value="${escapeHtml(pb.platformName)}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
               </div>
               <div>
-                <label class="block font-bold text-slate-700 mb-1">No. WA Super Admin</label>
+                <label class="block font-semibold text-slate-700 mb-1">WA Super Admin</label>
                 <input type="text" id="pb-wa" value="${escapeHtml(pb.supportWhatsApp)}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
               </div>
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Teks Footer Global</label>
+                <label class="block font-semibold text-slate-700 mb-1">Teks Footer</label>
                 <input type="text" id="pb-footer" value="${escapeHtml(pb.footerText)}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
               </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Warna Utama</label>
-                <input type="color" id="pb-primary" value="${escapeHtml(pb.primaryColor)}" class="w-full h-10 rounded-xl border border-slate-200 p-1" />
-              </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Warna Background Web</label>
-                <input type="color" id="pb-bg" value="${escapeHtml(pb.bgColor)}" class="w-full h-10 rounded-xl border border-slate-200 p-1" />
-              </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Warna Sidebar</label>
-                <input type="color" id="pb-sidebar" value="${escapeHtml(pb.sidebarColor)}" class="w-full h-10 rounded-xl border border-slate-200 p-1" />
-              </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Upload Logo Web</label>
+              <div class="sm:col-span-2">
+                <label class="block font-semibold text-slate-700 mb-1">Logo Web</label>
                 <input type="file" accept="image/*" onchange="window.appActions.handleBrandingFile(this, 'logoUrl')" class="w-full text-xs" />
               </div>
-              <div>
-                <label class="block font-bold text-slate-700 mb-1">Upload Favicon</label>
+              <div class="sm:col-span-2">
+                <label class="block font-semibold text-slate-700 mb-1">Favicon Tab</label>
                 <input type="file" accept="image/*" onchange="window.appActions.handleBrandingFile(this, 'faviconUrl')" class="w-full text-xs" />
               </div>
             </div>
+
             <button type="button" onclick="window.appActions.savePlatformBranding()"
-              class="px-5 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-bold">
-              Simpan Pengaturan Global Web
+              class="px-5 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold">
+              Simpan Pengaturan Tampilan
+            </button>
+          </div>
+
+          <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div class="font-semibold text-sm app-text-main">Edit Panduan per Role</div>
+              <div class="w-full sm:w-56">
+                ${renderCustomDropdown({
+                  id: "sa-guide-role-dd",
+                  value: guideRole,
+                  placeholder: "Pilih Role",
+                  options: ["SUPER_ADMIN", "OWNER", "ADMIN", "KASIR", "OPERATOR"].map(r => ({
+                    value: r,
+                    label: `Role: ${r}`
+                  })),
+                  onSelectFn: "selectGuideRoleToEdit"
+                })}
+              </div>
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 mb-1">Isi Panduan (1 baris = 1 poin panduan)</label>
+              <textarea id="sa-guide-textarea" rows="5"
+                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs leading-relaxed">${escapeHtml(currentGuideLines.join("\n"))}</textarea>
+            </div>
+            <button type="button" onclick="window.appActions.saveRoleGuide()"
+              class="px-5 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold">
+              Simpan Panduan ${escapeHtml(guideRole)}
             </button>
           </div>
         </div>
@@ -1585,64 +2222,122 @@
     function renderSettingsView() {
       const role = state.currentUser?.role;
       const biz = getCurrentBusiness();
+      const payAccounts = Array.isArray(biz.paymentAccounts) ? biz.paymentAccounts : [];
 
       return `
-        <div class="space-y-6 animate-page">
+        <div class="space-y-5 animate-page">
           ${renderExpiryBannerIfNeeded()}
-          <div>
-            <h1 class="text-xl font-extrabold text-slate-900">Pengaturan</h1>
-            <p class="text-xs text-slate-500">Kelola profil usaha, logo nota, serta akun login</p>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h1 class="text-xl font-bold app-text-main">Pengaturan</h1>
+              <p class="text-xs app-text-muted">Kelola profil usaha, pembayaran & status koneksi</p>
+            </div>
+            <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border ${state.firebaseConnected ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-800"}">
+              <span class="w-2 h-2 rounded-full ${state.firebaseConnected ? "bg-emerald-500" : "bg-amber-500"}"></span>
+              <span>${escapeHtml(state.firebaseStatusNote)}</span>
+            </div>
           </div>
 
           ${role === "SUPER_ADMIN" ? `
             <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4 max-w-xl">
-              <div class="font-bold text-sm text-slate-900">Akun Super Admin</div>
+              <div class="font-semibold text-sm text-slate-900">Akun Super Admin</div>
               <div>
-                <label class="block text-xs font-bold text-slate-700 mb-1">Nama</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Nama</label>
                 <input type="text" id="sa-auth-name" value="${escapeHtml(state.superAdminAuth.name)}" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
               </div>
               <div>
-                <label class="block text-xs font-bold text-slate-700 mb-1">Email / Username Login</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Email / Username Login</label>
                 <input type="text" id="sa-auth-email" value="${escapeHtml(state.superAdminAuth.email)}" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
               </div>
               <div>
-                <label class="block text-xs font-bold text-slate-700 mb-1">Password Baru</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Password Baru</label>
                 <input type="password" id="sa-auth-password" placeholder="Masukkan password baru" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
               </div>
               <button type="button" onclick="window.appActions.saveSuperAdminCredentials()"
-                class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-bold">
+                class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold">
                 Simpan Akun Super Admin
               </button>
             </div>
           ` : `
-            <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4 max-w-2xl">
-              <div class="font-bold text-sm text-slate-900">Profil Bisnis & Logo Nota</div>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                <div>
-                  <label class="block font-bold text-slate-700 mb-1">Nama Usaha</label>
-                  <input type="text" id="biz-set-name" value="${escapeHtml(biz.name)}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
+                <div class="font-semibold text-sm text-slate-900">Profil Bisnis & Logo Nota</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+                  <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Nama Usaha</label>
+                    <input type="text" id="biz-set-name" value="${escapeHtml(biz.name)}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
+                  </div>
+                  <div>
+                    <label class="block font-semibold text-slate-700 mb-1">No. WhatsApp Usaha</label>
+                    <input type="text" id="biz-set-phone" value="${escapeHtml(biz.phone || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
+                  </div>
+                  <div class="sm:col-span-2">
+                    <label class="block font-semibold text-slate-700 mb-1">Alamat Outlet</label>
+                    <input type="text" id="biz-set-address" value="${escapeHtml(biz.address || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
+                  </div>
+                  <div class="sm:col-span-2">
+                    <label class="block font-semibold text-slate-700 mb-1">Catatan Kaki Nota</label>
+                    <input type="text" id="biz-set-footer" value="${escapeHtml(biz.receiptFooter || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
+                  </div>
+                  <div class="sm:col-span-2">
+                    <label class="block font-semibold text-slate-700 mb-1">Upload Logo Bisnis (Untuk Nota & Portal)</label>
+                    <input type="file" accept="image/*" onchange="window.appActions.handleBusinessLogoUpload(this)" class="w-full text-xs" />
+                  </div>
                 </div>
-                <div>
-                  <label class="block font-bold text-slate-700 mb-1">No. WhatsApp Usaha</label>
-                  <input type="text" id="biz-set-phone" value="${escapeHtml(biz.phone || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
-                </div>
-                <div class="sm:col-span-2">
-                  <label class="block font-bold text-slate-700 mb-1">Alamat Outlet</label>
-                  <input type="text" id="biz-set-address" value="${escapeHtml(biz.address || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
-                </div>
-                <div class="sm:col-span-2">
-                  <label class="block font-bold text-slate-700 mb-1">Catatan Kaki Nota</label>
-                  <input type="text" id="biz-set-footer" value="${escapeHtml(biz.receiptFooter || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
-                </div>
-                <div class="sm:col-span-2">
-                  <label class="block font-bold text-slate-700 mb-1">Upload Logo Bisnis (Untuk Nota & Portal)</label>
-                  <input type="file" accept="image/*" onchange="window.appActions.handleBusinessLogoUpload(this)" class="w-full text-xs" />
-                </div>
+                <button type="button" onclick="window.appActions.saveBusinessSettings()"
+                  class="px-5 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold">
+                  Simpan Pengaturan Bisnis
+                </button>
               </div>
-              <button type="button" onclick="window.appActions.saveBusinessSettings()"
-                class="px-5 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-bold">
-                Simpan Pengaturan Bisnis
-              </button>
+
+              ${role === "ADMIN" || role === "OWNER" ? `
+                <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
+                  <div class="font-semibold text-sm text-slate-900">Metode Pembayaran, Rekening & QRIS (Owner & Admin)</div>
+
+                  <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                    <div class="font-semibold text-slate-800">Upload Gambar QRIS</div>
+                    ${biz.qrisImageUrl ? `
+                      <div class="flex items-center gap-3">
+                        <img src="${escapeHtml(biz.qrisImageUrl)}" alt="QRIS" class="w-20 h-20 object-contain rounded-xl bg-white border border-slate-200 p-1" />
+                        <button type="button" onclick="window.appActions.removeBusinessQris()"
+                          class="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 font-semibold">
+                          Hapus QRIS
+                        </button>
+                      </div>
+                    ` : ""}
+                    <input type="file" accept="image/*" onchange="window.appActions.handleBusinessQrisUpload(this)" class="w-full text-xs" />
+                  </div>
+
+                  <div class="space-y-2 text-xs">
+                    <div class="font-semibold text-slate-800">Daftar Metode & Rekening</div>
+                    ${payAccounts.map(acc => `
+                      <div class="p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-2">
+                        <div>
+                          <div class="font-semibold text-slate-900">${escapeHtml(acc.label)}</div>
+                          <div class="text-slate-500">${escapeHtml(acc.accountNumber)} • a.n ${escapeHtml(acc.accountHolder)}</div>
+                        </div>
+                        <button type="button" onclick="window.appActions.removePaymentAccount('${escapeHtml(acc.id)}')"
+                          class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 font-semibold">
+                          Hapus
+                        </button>
+                      </div>
+                    `).join("")}
+                  </div>
+
+                  <div class="pt-2 border-t border-slate-100 space-y-2 text-xs">
+                    <div class="font-semibold text-slate-800">Tambah Metode / Rekening Baru</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input type="text" id="new-acc-label" placeholder="Nama (mis. BCA / QRIS)" class="px-3 py-2 rounded-xl border border-slate-200" />
+                      <input type="text" id="new-acc-number" placeholder="No. Rekening" class="px-3 py-2 rounded-xl border border-slate-200" />
+                      <input type="text" id="new-acc-holder" placeholder="Atas Nama" class="px-3 py-2 rounded-xl border border-slate-200" />
+                    </div>
+                    <button type="button" onclick="window.appActions.addPaymentAccount()"
+                      class="px-4 py-2 rounded-xl theme-primary-bg text-white font-semibold">
+                      + Tambah Rekening / Metode
+                    </button>
+                  </div>
+                </div>
+              ` : ""}
             </div>
           `}
         </div>
@@ -1670,38 +2365,14 @@
 
     function renderGuideView() {
       const role = state.currentUser?.role || "USER";
-      const guides = {
-        SUPER_ADMIN: [
-          "Pantau daftar Owner dan Tenant pada menu Dashboard.",
-          "Daftarkan Owner baru, edit email/password/role, dan perpanjang masa aktif di Dashboard atau Super Admin SaaS.",
-          "Atur harga paket, warna tema global, logo web, favicon, dan footer di menu Super Admin SaaS."
-        ],
-        OWNER: [
-          "Kelola kasir, order, pelanggan, pembayaran, pengeluaran, layanan, dan laporan keuangan.",
-          "Tambah akun login karyawan (Kasir, Operator, Admin) pada menu Karyawan.",
-          "Upload logo bisnis di Pengaturan untuk tercetak pada nota, serta gunakan menu Help untuk kontak WhatsApp Super Admin."
-        ],
-        ADMIN: [
-          "Jalankan transaksi kasir, pembaruan status order, pelanggan, pembayaran/piutang, pengeluaran, dan layanan.",
-          "Perbarui profil cabang dan logo nota di Pengaturan.",
-          "Gunakan tombol perpanjangan paket saat masa aktif mendekati 7 hari terakhir."
-        ],
-        KASIR: [
-          "Buat order baru di Kasir Quick Order dan cetak nota ber-QR Code.",
-          "Cari nota lewat Scan Barcode/QR dan catat pelunasan pembayaran pelanggan."
-        ],
-        OPERATOR: [
-          "Buka menu Order Laundry atau Scan Barcode/QR untuk memperbarui tahap proses cucian (Diterima, Dicuci, Dikeringkan, Disetrika, Siap Diambil, Selesai)."
-        ]
-      };
-      const items = guides[role] || ["Gunakan menu di samping sesuai hak akses akun Anda."];
+      const items = (state.roleGuides && state.roleGuides[role]) || ["Gunakan menu di samping sesuai hak akses akun Anda."];
 
       return `
-        <div class="space-y-6 animate-page max-w-2xl">
+        <div class="space-y-5 animate-page max-w-2xl">
           ${renderExpiryBannerIfNeeded()}
           <div>
-            <h1 class="text-xl font-extrabold text-slate-900">Panduan Role (${escapeHtml(role)})</h1>
-            <p class="text-xs text-slate-500">Ringkasan tugas dan fitur yang tersedia untuk peran Anda</p>
+            <h1 class="text-xl font-bold app-text-main">Panduan Role (${escapeHtml(role)})</h1>
+            <p class="text-xs app-text-muted">Ringkasan tugas dan fitur untuk peran Anda</p>
           </div>
           <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-3">
             ${items.map((txt, i) => `
@@ -1755,6 +2426,7 @@
 
     function renderApp() {
       applyThemeVariables();
+      syncUrlRoute();
       const appEl = document.getElementById("app");
       if (!appEl) return;
 
@@ -1771,6 +2443,7 @@
       const role = state.currentUser.role;
       const pb = Object.assign({}, DEFAULT_PLATFORM_BRANDING, state.platformBranding || {});
       const biz = getCurrentBusiness();
+      const activeTitleName = role === "SUPER_ADMIN" ? pb.platformName : biz.name;
 
       const navItems = role === "SUPER_ADMIN"
         ? [
@@ -1798,57 +2471,108 @@
             { id: "guide", label: "Panduan" }
           ];
 
+      const sidebarInnerHtml = `
+        <div class="space-y-4">
+          <div class="flex items-center justify-between gap-2 px-2">
+            <div class="flex items-center gap-2.5 min-w-0">
+              ${(biz.logoUrl || pb.logoUrl)
+                ? `<img src="${escapeHtml(biz.logoUrl || pb.logoUrl)}" alt="Logo" class="w-9 h-9 rounded-xl object-contain border border-slate-200 p-1 bg-white shrink-0" />`
+                : `<div class="w-9 h-9 rounded-xl theme-primary-bg text-white flex items-center justify-center font-bold text-sm shrink-0">SL</div>`
+              }
+              <div class="min-w-0">
+                <div class="font-bold text-sm app-text-main truncate">${escapeHtml(activeTitleName)}</div>
+                <div class="text-[11px] font-semibold app-text-muted">${escapeHtml(role)}</div>
+              </div>
+            </div>
+            <button type="button" onclick="window.appActions.toggleMobileSidebar(false)"
+              class="lg:hidden p-2 rounded-xl bg-slate-100 text-slate-700">
+              ${renderIcon("close", "w-4 h-4")}
+            </button>
+          </div>
+
+          <nav class="flex flex-col gap-1">
+            ${navItems.map(item => {
+              const active = state.activeTab === item.id;
+              return `
+                <button type="button" onclick="window.appActions.switchTab('${item.id}')"
+                  class="px-3.5 py-2.5 rounded-xl text-xs font-semibold text-left whitespace-nowrap transition flex items-center gap-2.5 ${active ? "theme-primary-bg theme-btn-active text-white shadow-sm" : "app-text-main hover:bg-slate-100"}">
+                  ${renderIcon(item.id, "w-4 h-4", active)}
+                  <span>${escapeHtml(item.label)}</span>
+                </button>
+              `;
+            }).join("")}
+          </nav>
+
+          ${role === "OWNER" && getOwnerBusinesses(state.currentUser.id).length > 1 ? `
+            <div class="pt-3 border-t border-slate-100 space-y-1.5 px-1">
+              <div class="text-[10px] font-bold uppercase tracking-wider app-text-muted px-1">Pilih Cabang Aktif</div>
+              ${renderCustomDropdown({
+                id: "sidebar-owner-branch-dd",
+                value: biz.id,
+                placeholder: "Pilih Cabang",
+                options: getOwnerBusinesses(state.currentUser.id).map(b => ({
+                  value: b.id,
+                  label: b.name,
+                  sub: `Paket ${b.plan || "PRO"}`
+                })),
+                onSelectFn: "switchOwnerBranch"
+              })}
+            </div>
+          ` : ""}
+        </div>
+
+        <div class="pt-4 mt-4 border-t border-slate-100 space-y-2">
+          <div class="px-2">
+            <div class="text-xs font-bold app-text-main truncate">${escapeHtml(state.currentUser.name)}</div>
+            <div class="text-[11px] app-text-muted truncate">${escapeHtml(state.currentUser.email)}</div>
+          </div>
+          <button type="button" onclick="window.appActions.logoutUser()"
+            class="w-full px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold text-left flex items-center gap-2">
+            ${renderIcon("logout", "w-4 h-4", true)}
+            <span>Keluar</span>
+          </button>
+        </div>
+      `;
+
       appEl.innerHTML = `
         <div class="min-h-screen flex flex-col lg:flex-row">
-          <aside class="sidebar-panel w-full lg:w-64 border-b lg:border-b-0 lg:border-r border-slate-200/80 p-4 flex flex-col justify-between shrink-0 no-print">
-            <div class="space-y-4">
-              <div class="flex items-center gap-2.5 px-2">
-                ${(biz.logoUrl || pb.logoUrl)
-                  ? `<img src="${escapeHtml(biz.logoUrl || pb.logoUrl)}" alt="Logo" class="w-9 h-9 rounded-xl object-contain border border-slate-200 p-1 bg-white" />`
-                  : `<div class="w-9 h-9 rounded-xl theme-primary-bg text-white flex items-center justify-center font-extrabold text-sm">SL</div>`
-                }
-                <div class="min-w-0">
-                  <div class="font-extrabold text-sm text-slate-900 truncate">${escapeHtml(role === "SUPER_ADMIN" ? pb.platformName : biz.name)}</div>
-                  <div class="text-[11px] font-semibold text-slate-500">${escapeHtml(role)}</div>
-                </div>
-              </div>
-
-              <div class="px-2">
-                <div class="inline-flex items-center gap-1.5 text-[11px] font-semibold ${state.firebaseConnected ? "text-emerald-700" : "text-slate-500"}">
-                  <span class="w-2 h-2 rounded-full ${state.firebaseConnected ? "bg-emerald-500" : "bg-amber-500"}"></span>
-                  ${escapeHtml(state.firebaseStatusNote)}
-                </div>
-              </div>
-
-              <nav class="flex lg:flex-col gap-1 overflow-x-auto pb-1 lg:pb-0">
-                ${navItems.map(item => `
-                  <button type="button" onclick="window.appActions.switchTab('${item.id}')"
-                    class="px-3.5 py-2.5 rounded-xl text-xs font-bold text-left whitespace-nowrap transition ${state.activeTab === item.id ? "theme-primary-bg text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}">
-                    ${escapeHtml(item.label)}
-                  </button>
-                `).join("")}
-              </nav>
-            </div>
-
-            <div class="pt-4 mt-4 border-t border-slate-100 space-y-2">
-              <div class="px-2">
-                <div class="text-xs font-bold text-slate-900 truncate">${escapeHtml(state.currentUser.name)}</div>
-                <div class="text-[11px] text-slate-500 truncate">${escapeHtml(state.currentUser.email)}</div>
-              </div>
-              <button type="button" onclick="window.appActions.logoutUser()"
-                class="w-full px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold text-left">
-                Keluar
+          <header class="lg:hidden sidebar-panel border-b border-slate-200/80 px-4 py-3 grid grid-cols-3 items-center sticky top-0 z-30 no-print">
+            <div class="flex items-center justify-start">
+              <button type="button" onclick="window.appActions.toggleMobileSidebar(true)"
+                aria-label="Buka Menu"
+                class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 inline-flex items-center justify-center transition-transform active:scale-95">
+                ${renderIcon("menu", "w-5 h-5")}
               </button>
             </div>
+            <div class="flex items-center justify-center">
+              ${(biz.logoUrl || pb.logoUrl)
+                ? `<img src="${escapeHtml(biz.logoUrl || pb.logoUrl)}" alt="Logo" class="w-9 h-9 rounded-xl object-contain border border-slate-200 p-0.5 bg-white shrink-0" />`
+                : `<div class="w-9 h-9 rounded-xl theme-primary-bg text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">SL</div>`
+              }
+            </div>
+            <div class="flex items-center justify-end"></div>
+          </header>
+
+          ${state.mobileSidebarOpen ? `
+            <div class="fixed inset-0 z-40 lg:hidden flex no-print" onclick="if(event.target===this) window.appActions.toggleMobileSidebar(false)">
+              <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] animate-backdrop" onclick="window.appActions.toggleMobileSidebar(false)"></div>
+              <aside class="relative z-10 sidebar-panel w-72 max-w-[82vw] h-full p-4 flex flex-col justify-between overflow-y-auto shadow-2xl animate-drawer">
+                ${sidebarInnerHtml}
+              </aside>
+            </div>
+          ` : ""}
+
+          <aside class="hidden lg:flex sidebar-panel w-64 border-r border-slate-200/80 p-4 flex-col justify-between shrink-0 no-print">
+            ${sidebarInnerHtml}
           </aside>
 
           <div class="flex-1 flex flex-col justify-between min-w-0">
-            <main class="p-4 sm:p-6 lg:p-8 max-w-6xl w-full mx-auto">
+            <main class="p-4 sm:p-6 lg:p-8 max-w-6xl w-full mx-auto flex-1">
               ${renderMainContent()}
             </main>
 
-            <footer class="px-6 py-3 border-t border-slate-200/60 text-center text-[11px] text-slate-400 no-print">
-              ${escapeHtml(pb.footerText)}
+            <footer class="mt-8 px-4 sm:px-6 py-4 border-t border-slate-200/60 text-center text-[11px] app-text-muted bg-white/40 shrink-0 no-print">
+              <div class="max-w-6xl mx-auto truncate">${escapeHtml(pb.footerText || "© 2026 SSmart Laundry")}</div>
             </footer>
           </div>
         </div>
@@ -1860,17 +2584,97 @@
     window.appActions = {
       closeModal,
 
+      toggleMobileSidebar(forceOpen) {
+        state.mobileSidebarOpen = typeof forceOpen === "boolean" ? forceOpen : !state.mobileSidebarOpen;
+        renderApp();
+      },
+
+      toggleCustomDropdown(id) {
+        state.openDropdownId = state.openDropdownId === id ? null : id;
+        renderApp();
+      },
+
+      selectCustomDropdownValue(id, val, fnName) {
+        state.openDropdownId = null;
+        if (fnName && typeof window.appActions[fnName] === "function") {
+          window.appActions[fnName](val);
+        } else {
+          renderApp();
+        }
+      },
+
+      setModalEmpRole(val) {
+        state.modalEmpRole = val || "KASIR";
+        const box = document.getElementById("emp-role-dd-wrap");
+        if (box) {
+          box.innerHTML = renderCustomDropdown({
+            id: "modal-emp-role-dd",
+            value: state.modalEmpRole,
+            options: [
+              { value: "ADMIN", label: "ADMIN", sub: "Kepala cabang (1 cabang per slot paket)" },
+              { value: "KASIR", label: "KASIR", sub: "Transaksi kasir & pelunasan" },
+              { value: "OPERATOR", label: "OPERATOR", sub: "Proses & update status cucian" }
+            ],
+            onSelectFn: "setModalEmpRole"
+          });
+        }
+      },
+
+      setModalEmpBranch(val) {
+        state.modalEmpBranchId = val || getCurrentBusiness().id;
+        const ownedBranches = state.currentUser?.role === "OWNER" ? getOwnerBusinesses(state.currentUser.id) : [getCurrentBusiness()];
+        const box = document.getElementById("emp-branch-dd-wrap");
+        if (box) {
+          box.innerHTML = renderCustomDropdown({
+            id: "modal-emp-branch-dd",
+            value: state.modalEmpBranchId,
+            options: ownedBranches.map(b => ({ value: b.id, label: b.name, sub: b.address || "" })),
+            onSelectFn: "setModalEmpBranch"
+          });
+        }
+      },
+
+      setModalOwnerPlan(val) {
+        state.modalOwnerPlan = val || "STARTER";
+        const box = document.getElementById("own-plan-dd-wrap");
+        if (box) {
+          box.innerHTML = renderCustomDropdown({
+            id: "modal-own-plan-dd",
+            value: state.modalOwnerPlan,
+            options: state.pricingPlans.map(p => ({ value: p.id, label: p.name, sub: `${formatRupiah(p.monthlyPrice)}/bln` })),
+            onSelectFn: "setModalOwnerPlan"
+          });
+        }
+      },
+
+      switchOwnerBranch(branchId) {
+        if (state.currentUser?.role !== "OWNER") return;
+        const owned = getOwnerBusinesses(state.currentUser.id);
+        const target = owned.find(b => b.id === branchId);
+        if (!target) return;
+        state.activeBusinessId = target.id;
+        state.selectedOrderId = null;
+        state.selectedPaymentId = null;
+        state.mobileSidebarOpen = false;
+        saveSessionToStorage();
+        showToast(`Beralih ke cabang ${target.name}`);
+        renderApp();
+      },
+
       switchTab(tab) {
         if (!canAccess(tab)) return;
         state.activeTab = tab;
         state.selectedOrderId = null;
         state.selectedPaymentId = null;
+        state.mobileSidebarOpen = false;
+        state.openDropdownId = null;
         renderApp();
       },
 
       openPublicPortal(invoicePrefill = "") {
         state.publicPortalMode = true;
         state.publicTrackQuery = invoicePrefill || "";
+        state.mobileSidebarOpen = false;
         renderApp();
       },
 
@@ -1935,7 +2739,7 @@
               id: owner.id,
               name: owner.name,
               email: owner.email,
-              role: owner.role || "OWNER",
+              role: "OWNER",
               businessId: owner.businessId
             });
             state.activeTab = "dashboard";
@@ -1949,7 +2753,7 @@
         for (const emp of state.employees) {
           if (String(emp.email || "").trim().toLowerCase() === emailInput && await verifyPasswordMatch(passInput, emp.password)) {
             if (emp.active === false) {
-              showToast("Akun karyawan tidak aktif", "error");
+              showToast("Akun Anda dinonaktifkan oleh Owner", "error");
               return;
             }
             if (!String(emp.password || "").startsWith("sha256:")) {
@@ -1981,6 +2785,7 @@
         state.isAuthenticated = false;
         state.currentUser = null;
         state.activeTab = "dashboard";
+        state.mobileSidebarOpen = false;
         try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
         renderApp();
       },
@@ -2003,9 +2808,9 @@
         renderApp();
       },
 
-      setQuickCustomer(val) { state.quickCustomerId = val; },
+      setQuickCustomer(val) { state.quickCustomerId = val; renderApp(); },
       setQuickPaid(val) { state.quickPaidAmount = Number(val || 0); },
-      setQuickMethod(val) { state.quickPaymentMethod = val; },
+      setQuickMethod(val) { state.quickPaymentMethod = val; renderApp(); },
       setQuickNotes(val) { state.quickNotes = val; },
 
       submitQuickOrder() {
@@ -2088,60 +2893,151 @@
         if (!ord) return;
         const biz = state.businesses.find(b => b.id === ord.businessId) || getCurrentBusiness();
         const trackUrl = getTrackingUrl(ord.invoiceNumber);
+        const methodLabel = String(ord.paymentMethod || "");
+        const matchedAcc = (biz.paymentAccounts || []).find(a => String(a.label || "").toLowerCase() === methodLabel.toLowerCase());
+        const isQrisMethod = methodLabel.toUpperCase().includes("QRIS") || (matchedAcc && matchedAcc.methodType === "QRIS");
+        const hasTransferAccount = matchedAcc && matchedAcc.accountNumber && matchedAcc.accountNumber !== "-" && matchedAcc.accountNumber !== "Scan QRIS";
+
+        const kasirWaRaw = String(biz.phone || state.platformBranding?.supportWhatsApp || "").replace(/\D/g, "");
+        const kasirWaNum = kasirWaRaw.startsWith("0") ? ("62" + kasirWaRaw.slice(1)) : kasirWaRaw;
+        const confirmPayText = encodeURIComponent(
+          `Halo Kasir *${biz.name}*,\nSaya *${ord.customerName}* ingin mengirimkan bukti screenshot (SS) pembayaran untuk konfirmasi order:\n\n` +
+          `No. Invoice: *${ord.invoiceNumber}*\n` +
+          `Total Tagihan: *${formatRupiah(ord.totalAmount)}*\n` +
+          `Metode Bayar: *${methodLabel || "-"}*\n\n` +
+          `Berikut saya lampirkan bukti SS pembayarannya:`
+        );
+        const confirmPayWaHref = kasirWaNum ? `https://wa.me/${kasirWaNum}?text=${confirmPayText}` : `https://wa.me/?text=${confirmPayText}`;
+
+        let paymentDetailWaLine = `Metode Bayar: *${methodLabel || "-"}*\n`;
+        if (hasTransferAccount) {
+          paymentDetailWaLine += `Transfer ke: *${matchedAcc.label}*\nNo. Rekening: *${matchedAcc.accountNumber}*\nAtas Nama: *${matchedAcc.accountHolder}*\n_Harap kirim bukti SS pembayaran untuk konfirmasi ke WhatsApp kasir ketika sudah transfer._\n`;
+        } else if (isQrisMethod && biz.qrisImageUrl) {
+          paymentDetailWaLine += `Pembayaran via *QRIS* (buka tautan nota di bawah untuk scan QRIS):\n_Harap kirim bukti SS pembayaran untuk konfirmasi ke WhatsApp kasir ketika sudah transfer._\n`;
+        }
+
+        const waPhoneRaw = String(ord.customerPhone || "").replace(/\D/g, "");
+        const waPhone = waPhoneRaw.startsWith("0") ? ("62" + waPhoneRaw.slice(1)) : waPhoneRaw;
+        const itemLines = (ord.items || []).map(it => `- ${it.name} (${it.qty} ${it.unit}): ${formatRupiah(it.subtotal)}`).join("\n");
+        const waText = encodeURIComponent(
+          `Halo *${ord.customerName}*,\nBerikut nota laundry Anda di *${biz.name}*:\n\n` +
+          `No. Invoice: *${ord.invoiceNumber}*\n` +
+          `Tanggal: ${ord.createdAt}\n` +
+          `Estimasi Selesai: ${ord.estimatedDone}\n\n` +
+          `Rincian:\n${itemLines}\n\n` +
+          `Total: *${formatRupiah(ord.totalAmount)}*\n` +
+          `Terbayar: *${formatRupiah(ord.paidAmount)}* (${ord.paymentStatus})\n\n` +
+          `${paymentDetailWaLine}\n` +
+          `Lihat nota, QRIS & status cucian Anda di:\n${trackUrl}`
+        );
+        const waHref = waPhone ? `https://wa.me/${waPhone}?text=${waText}` : `https://wa.me/?text=${waText}`;
 
         openModal(`
           <div class="space-y-4 text-xs">
             <div class="text-center border-b border-slate-100 pb-3">
               ${biz.logoUrl ? `<img src="${escapeHtml(biz.logoUrl)}" alt="Logo" class="w-12 h-12 mx-auto object-contain mb-1.5" />` : ""}
-              <div class="font-extrabold text-base text-slate-900">${escapeHtml(biz.name)}</div>
+              <div class="font-bold text-base text-slate-900">${escapeHtml(biz.name)}</div>
               <div class="text-slate-500">${escapeHtml(biz.address || "")}</div>
               <div class="font-mono font-bold text-slate-800 mt-1">${escapeHtml(ord.invoiceNumber)}</div>
             </div>
             <div class="space-y-1">
-              <div>Pelanggan: <strong>${escapeHtml(ord.customerName)}</strong></div>
+              <div>Pelanggan: <strong>${escapeHtml(ord.customerName)}</strong> (${escapeHtml(ord.customerPhone || "-")})</div>
               <div>Tanggal: <strong>${escapeHtml(ord.createdAt)}</strong></div>
+              <div>Metode: <strong>${escapeHtml(ord.paymentMethod || "-")}</strong></div>
             </div>
             <div class="border-t border-b border-slate-100 py-2 space-y-1">
               ${(ord.items || []).map(it => `
                 <div class="flex justify-between">
                   <span>${escapeHtml(it.name)} (${it.qty} ${escapeHtml(it.unit)})</span>
-                  <span class="font-bold">${formatRupiah(it.subtotal)}</span>
+                  <span class="font-semibold">${formatRupiah(it.subtotal)}</span>
                 </div>
               `).join("")}
             </div>
-            <div class="flex justify-between font-extrabold text-sm">
+            <div class="flex justify-between font-bold text-sm">
               <span>Total</span>
               <span>${formatRupiah(ord.totalAmount)}</span>
             </div>
-            <div class="flex flex-col items-center pt-1">
-              <div id="qrcode-canvas"></div>
-              <div class="text-[10px] text-slate-400 mt-1 break-all text-center">${escapeHtml(trackUrl)}</div>
+            ${hasTransferAccount ? `
+              <div class="p-3 rounded-2xl bg-blue-50/70 border border-blue-200 text-center space-y-1.5">
+                <div class="text-[11px] font-semibold text-blue-800">Transfer Pembayaran (${escapeHtml(matchedAcc.label)})</div>
+                <div class="font-mono font-bold text-sm text-slate-900 tracking-wide">${escapeHtml(matchedAcc.accountNumber)}</div>
+                <div class="text-[11px] text-slate-600">a.n <strong>${escapeHtml(matchedAcc.accountHolder)}</strong></div>
+                <div class="p-2 rounded-xl bg-amber-50 border border-amber-200 text-[10px] text-amber-900 font-medium">
+                  Harap kirim bukti SS pembayaran untuk konfirmasi ke WhatsApp kasir ketika sudah transfer.
+                </div>
+                <a href="${confirmPayWaHref}" target="_blank" rel="noopener noreferrer"
+                  class="inline-flex items-center justify-center w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold">
+                  Konfirmasi Pembayaran ke WA Kasir
+                </a>
+              </div>
+            ` : ""}
+            ${isQrisMethod ? (biz.qrisImageUrl ? `
+              <div class="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-center space-y-1.5">
+                <div class="text-[11px] font-bold text-emerald-900">PEMBAYARAN QRIS (DANA / e-Wallet / M-Banking)</div>
+                <div class="text-[10px] text-emerald-700">Scan QRIS di bawah ini untuk melakukan pembayaran</div>
+                <img src="${escapeHtml(biz.qrisImageUrl)}" alt="QRIS Pembayaran" class="w-36 h-36 mx-auto object-contain bg-white border border-emerald-200 rounded-xl p-1.5" />
+                <div class="text-[10px] font-semibold text-slate-600">${escapeHtml(biz.name)}</div>
+                <div class="p-2 rounded-xl bg-amber-50 border border-amber-200 text-[10px] text-amber-900 font-medium">
+                  Harap kirim bukti SS pembayaran untuk konfirmasi ke WhatsApp kasir ketika sudah transfer.
+                </div>
+                <a href="${confirmPayWaHref}" target="_blank" rel="noopener noreferrer"
+                  class="inline-flex items-center justify-center w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold">
+                  Konfirmasi Pembayaran ke WA Kasir
+                </a>
+              </div>
+            ` : `
+              <div class="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-center text-[11px] text-amber-800">
+                Gambar QRIS (DANA/Outlet) belum diunggah oleh Admin / Owner di Pengaturan.
+              </div>
+            `) : ""}
+            <div class="border-t border-dashed border-slate-200 pt-3 flex flex-col items-center space-y-1">
+              <div class="text-[11px] font-bold text-slate-700">Scan Barcode untuk Lacak Progress Order</div>
+              <svg id="order-linear-barcode" class="max-w-full h-14"></svg>
+              <div class="text-[10px] text-slate-500 text-center">Atau cek progress di: <span class="underline break-all">${escapeHtml(trackUrl)}</span></div>
             </div>
             <div class="text-center text-slate-500 italic">${escapeHtml(biz.receiptFooter || "")}</div>
-            <div class="flex gap-2 pt-2">
-              <button type="button" onclick="window.print()" class="flex-1 py-2 rounded-xl theme-primary-bg text-white font-bold">Cetak</button>
-              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold">Tutup</button>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
+              <button type="button" onclick="window.print()" class="py-2.5 rounded-xl theme-primary-bg text-white font-semibold">Cetak Nota</button>
+              <a href="${waHref}" target="_blank" rel="noopener noreferrer"
+                class="py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-center">
+                Share via WA
+              </a>
+              <button type="button" onclick="window.appActions.closeModal()" class="py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold">Tutup</button>
             </div>
           </div>
         `);
 
         setTimeout(() => {
-          const el = document.getElementById("qrcode-canvas");
-          if (el && window.QRCode) {
-            el.innerHTML = "";
-            new window.QRCode(el, { text: trackUrl, width: 112, height: 112 });
+          const svgEl = document.getElementById("order-linear-barcode");
+          if (svgEl && window.JsBarcode) {
+            try {
+              window.JsBarcode(svgEl, String(ord.invoiceNumber || ""), {
+                format: "CODE128",
+                lineColor: "#0f172a",
+                width: 1.6,
+                height: 44,
+                displayValue: true,
+                fontSize: 11,
+                margin: 2
+              });
+            } catch (e) {}
           }
         }, 40);
       },
 
-      setOrderFilter(f) { state.orderFilter = f; state.selectedOrderId = null; renderApp(); },
+      setOrderFilter(f) { state.orderFilter = normalizeOrderStatus(f); state.selectedOrderId = null; renderApp(); },
       setOrderSearch(q) { state.searchOrder = q; renderApp(); },
       selectOrderDetail(id) { state.selectedOrderId = id; renderApp(); },
+
+      updateFocusedOrderStatus(newStatus) {
+        if (!state.selectedOrderId) return;
+        this.updateOrderStatus(state.selectedOrderId, newStatus);
+      },
 
       updateOrderStatus(orderId, newStatus) {
         const ord = state.orders.find(o => o.id === orderId);
         if (!ord) return;
-        ord.status = newStatus;
+        ord.status = normalizeOrderStatus(newStatus);
         saveStateToStorage();
         syncRecordToCloud("orders", ord);
         showToast("Status order diperbarui");
@@ -2173,22 +3069,22 @@
 
       setCustomerSearch(q) { state.searchCustomer = q; renderApp(); },
 
-      openAddCustomerModal() {
+      openAddCustomerModal(selectForOrder = false) {
         openModal(`
           <div class="space-y-4">
-            <div class="font-extrabold text-base text-slate-900">Tambah Pelanggan</div>
+            <div class="font-bold text-base text-slate-900">Tambah Pelanggan Baru</div>
             <input type="text" id="cust-name" placeholder="Nama lengkap" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="text" id="cust-phone" placeholder="No. HP / WhatsApp" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+            <input type="text" id="cust-phone" placeholder="No. HP / WhatsApp (mis. 0812...)" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
             <input type="text" id="cust-address" placeholder="Alamat" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
             <div class="flex justify-end gap-2">
-              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 text-xs font-bold">Batal</button>
-              <button type="button" onclick="window.appActions.saveCustomer()" class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold">Simpan</button>
+              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold">Batal</button>
+              <button type="button" onclick="window.appActions.saveCustomer(${selectForOrder ? "true" : "false"})" class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-semibold">Simpan</button>
             </div>
           </div>
         `);
       },
 
-      saveCustomer() {
+      saveCustomer(selectForOrder = false) {
         const name = (document.getElementById("cust-name").value || "").trim();
         const phone = (document.getElementById("cust-phone").value || "").trim();
         const address = (document.getElementById("cust-address").value || "").trim();
@@ -2198,6 +3094,9 @@
         }
         const rec = { id: "cust_" + Date.now(), businessId: getCurrentBusiness().id, name, phone, address };
         state.customers.unshift(rec);
+        if (selectForOrder) {
+          state.quickCustomerId = rec.id;
+        }
         saveStateToStorage();
         syncRecordToCloud("customers", rec);
         closeModal();
@@ -2279,47 +3178,311 @@
       },
 
       openAddEmployeeModal() {
+        this.openEmployeeFormModal(null);
+      },
+
+      openEmployeeFormModal(empId = null) {
+        if (state.currentUser?.role !== "OWNER") return;
+        const ownedBranches = getOwnerBusinesses(state.currentUser.id);
+        const ownedIds = ownedBranches.map(b => b.id);
+        const emp = empId ? state.employees.find(e => e.id === empId && ownedIds.includes(e.businessId)) : null;
+        state.modalEmpRole = emp?.role || "KASIR";
+        state.modalEmpBranchId = emp?.businessId || getCurrentBusiness().id;
+
         openModal(`
-          <div class="space-y-4">
-            <div class="font-extrabold text-base text-slate-900">Tambah Karyawan</div>
-            <input type="text" id="emp-name" placeholder="Nama lengkap" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="email" id="emp-email" placeholder="Email login" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="password" id="emp-password" placeholder="Password (min. 6 karakter)" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="text" id="emp-phone" placeholder="No. HP / WA" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <select id="emp-role" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs bg-white">
-              <option value="KASIR">KASIR</option>
-              <option value="OPERATOR">OPERATOR</option>
-              <option value="ADMIN">ADMIN</option>
-            </select>
-            <div class="flex justify-end gap-2">
-              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 text-xs font-bold">Batal</button>
-              <button type="button" onclick="window.appActions.saveEmployee()" class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold">Simpan</button>
+          <div class="space-y-3.5 text-xs">
+            <div class="font-bold text-base text-slate-900">${emp ? "Edit Akun Admin / Staf" : "Tambah Staf / Admin Cabang"}</div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Cabang Penugasan</label>
+              <div id="emp-branch-dd-wrap">
+                ${renderCustomDropdown({
+                  id: "modal-emp-branch-dd",
+                  value: state.modalEmpBranchId,
+                  options: ownedBranches.map(b => ({ value: b.id, label: b.name, sub: b.address || "" })),
+                  onSelectFn: "setModalEmpBranch"
+                })}
+              </div>
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Nama Lengkap</label>
+              <input type="text" id="emp-name" value="${escapeHtml(emp?.name || "")}" placeholder="Nama lengkap" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Email Login</label>
+              <input type="email" id="emp-email" value="${escapeHtml(emp?.email || "")}" placeholder="Email login" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Password ${emp ? "(kosongkan jika tidak diubah)" : "(min. 6 karakter)"}</label>
+              <input type="password" id="emp-password" placeholder="${emp ? "Biarkan kosong jika tetap" : "Masukkan password"}" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">No. HP / WhatsApp</label>
+              <input type="text" id="emp-phone" value="${escapeHtml(emp?.phone || "")}" placeholder="No. HP / WA" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Jabatan / Role</label>
+              <div id="emp-role-dd-wrap">
+                ${renderCustomDropdown({
+                  id: "modal-emp-role-dd",
+                  value: state.modalEmpRole,
+                  options: [
+                    { value: "ADMIN", label: "ADMIN", sub: "Kepala cabang (1 cabang per slot paket)" },
+                    { value: "KASIR", label: "KASIR", sub: "Transaksi kasir & pelunasan" },
+                    { value: "OPERATOR", label: "OPERATOR", sub: "Proses & update status cucian" }
+                  ],
+                  onSelectFn: "setModalEmpRole"
+                })}
+              </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 font-semibold">Batal</button>
+              <button type="button" onclick="window.appActions.saveEmployee('${escapeHtml(emp?.id || "")}')" class="px-4 py-2 rounded-xl theme-primary-bg text-white font-semibold">Simpan</button>
             </div>
           </div>
         `);
       },
 
-      async saveEmployee() {
-        if (state.currentUser?.role !== "OWNER") {
-          showToast("Hanya Owner yang dapat menambah karyawan", "error");
+      openNewBranchAdminModal() {
+        if (state.currentUser?.role !== "OWNER") return;
+        const ownedBranches = getOwnerBusinesses(state.currentUser.id);
+        const maxBranches = getOwnerBranchQuota(state.currentUser.id);
+        if (ownedBranches.length >= maxBranches) {
+          this.openBuyBranchPackageModal();
           return;
         }
+        openModal(`
+          <div class="space-y-3.5 text-xs">
+            <div class="font-bold text-base text-slate-900">Daftarkan Cabang & Admin Baru</div>
+            <div class="p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-900">
+              Sisa kuota paket Anda: <strong>${maxBranches - ownedBranches.length} slot cabang</strong> dari total ${maxBranches} cabang.
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Nama Cabang Laundry Baru</label>
+              <input type="text" id="new-br-name" placeholder="Contoh: SSmart Laundry Cabang Tebet" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Alamat Cabang</label>
+              <input type="text" id="new-br-address" placeholder="Alamat lengkap cabang" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div class="pt-1 border-t border-slate-100 font-semibold text-slate-800">Akun Admin Cabang</div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Nama Admin</label>
+              <input type="text" id="new-br-admin-name" placeholder="Nama lengkap Admin" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Email Login Admin</label>
+              <input type="email" id="new-br-admin-email" placeholder="admin.cabang@laundry.id" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Password Login</label>
+                <input type="password" id="new-br-admin-pass" placeholder="Min. 6 karakter" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">No. HP / WA</label>
+                <input type="text" id="new-br-admin-phone" placeholder="0812..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+              </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 font-semibold">Batal</button>
+              <button type="button" onclick="window.appActions.saveNewBranchAndAdmin()" class="px-4 py-2 rounded-xl theme-primary-bg text-white font-semibold">Daftarkan Cabang & Admin</button>
+            </div>
+          </div>
+        `);
+      },
+
+      async saveNewBranchAndAdmin() {
+        if (state.currentUser?.role !== "OWNER") return;
+        const ownerId = state.currentUser.id;
+        const ownerRec = state.owners.find(o => o.id === ownerId);
+        const ownedBranches = getOwnerBusinesses(ownerId);
+        const maxBranches = getOwnerBranchQuota(ownerId);
+        if (ownedBranches.length >= maxBranches) {
+          closeModal();
+          this.openBuyBranchPackageModal();
+          return;
+        }
+
+        const brName = (document.getElementById("new-br-name")?.value || "").trim();
+        const brAddress = (document.getElementById("new-br-address")?.value || "Indonesia").trim();
+        const adminName = (document.getElementById("new-br-admin-name")?.value || "").trim();
+        const adminEmail = (document.getElementById("new-br-admin-email")?.value || "").trim();
+        const adminPassRaw = (document.getElementById("new-br-admin-pass")?.value || "").trim();
+        const adminPhone = (document.getElementById("new-br-admin-phone")?.value || "").trim();
+
+        if (!brName || !adminName || !adminEmail || adminPassRaw.length < 6) {
+          showToast("Nama cabang, data Admin, dan password min. 6 karakter wajib diisi", "error");
+          return;
+        }
+
+        const primaryBiz = getCurrentBusiness();
+        const newBizId = "biz_" + Date.now();
+        const newBiz = {
+          id: newBizId,
+          ownerId,
+          name: brName,
+          ownerName: state.currentUser.name,
+          phone: adminPhone || primaryBiz.phone || "",
+          address: brAddress,
+          plan: primaryBiz.plan || "PRO",
+          expiresAt: ownerRec?.expiresAt || primaryBiz.expiresAt,
+          logoUrl: primaryBiz.logoUrl || "",
+          receiptFooter: primaryBiz.receiptFooter || "Terima kasih telah mempercayakan cucian Anda kepada kami.",
+          qrisImageUrl: "",
+          paymentAccounts: [
+            { id: "acc_" + Date.now(), methodType: "CASH", label: "Tunai (CASH)", accountNumber: "-", accountHolder: "Kasir Outlet" }
+          ]
+        };
+
+        const hashedPass = await hashPasswordText(adminPassRaw);
+        const newAdmin = {
+          id: "emp_" + (Date.now() + 1),
+          businessId: newBizId,
+          name: adminName,
+          email: adminEmail,
+          password: hashedPass,
+          phone: adminPhone,
+          role: "ADMIN",
+          active: true
+        };
+
+        state.businesses.push(newBiz);
+        state.employees.push(newAdmin);
+        state.activeBusinessId = newBizId;
+        saveStateToStorage();
+        saveSessionToStorage();
+        syncRecordToCloud("businesses", newBiz);
+        syncRecordToCloud("employees", newAdmin);
+        closeModal();
+        showToast(`Cabang ${brName} & Admin ${adminName} berhasil didaftarkan`);
+        renderApp();
+      },
+
+      openBuyBranchPackageModal() {
+        if (state.currentUser?.role !== "OWNER") return;
+        const ownedBranches = getOwnerBusinesses(state.currentUser.id);
+        const maxBranches = getOwnerBranchQuota(state.currentUser.id);
+        const waNum = String(state.platformBranding?.supportWhatsApp || "6281234567890").replace(/\D/g, "");
+        const msg = encodeURIComponent(
+          `Halo Super Admin ${state.platformBranding?.platformName || "SSmart Laundry"}, saya Owner *${state.currentUser.name}* (${state.currentUser.email}). ` +
+          `Saat ini saya menggunakan ${ownedBranches.length}/${maxBranches} cabang dan ingin membeli paket tambahan cabang/Admin baru.`
+        );
+
+        openModal(`
+          <div class="space-y-4 text-xs">
+            <div class="font-bold text-base text-slate-900">Kuota Cabang & Admin Telah Penuh</div>
+            <p class="text-slate-600 leading-relaxed">
+              Owner hanya dapat mendaftarkan <strong>Admin baru</strong> jika memiliki slot cabang aktif dari paket yang dibeli kepada <strong>Super Admin</strong>.
+              Saat ini kuota Anda terpakai <strong>${ownedBranches.length} dari ${maxBranches} cabang</strong>.
+            </p>
+            <div class="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900">
+              Silakan hubungi Super Admin via WhatsApp untuk membeli paket tambahan cabang agar dapat mendaftarkan Admin baru.
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2 pt-1">
+              <a href="https://wa.me/${waNum}?text=${msg}" target="_blank" rel="noopener noreferrer"
+                class="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-center">
+                Beli Paket Cabang via WA Super Admin
+              </a>
+              <button type="button" onclick="window.appActions.closeModal()"
+                class="py-2.5 px-4 rounded-xl bg-slate-100 text-slate-700 font-semibold">
+                Tutup
+              </button>
+            </div>
+          </div>
+        `);
+      },
+
+      async saveEmployee(existingEmpId = "") {
+        if (state.currentUser?.role !== "OWNER") {
+          showToast("Hanya Owner yang dapat mengelola Admin & Karyawan", "error");
+          return;
+        }
+        const ownedBranches = getOwnerBusinesses(state.currentUser.id);
+        const ownedIds = ownedBranches.map(b => b.id);
+        const maxBranches = getOwnerBranchQuota(state.currentUser.id);
+
         const name = (document.getElementById("emp-name").value || "").trim();
         const email = (document.getElementById("emp-email").value || "").trim();
         const passwordRaw = (document.getElementById("emp-password").value || "").trim();
         const phone = (document.getElementById("emp-phone").value || "").trim();
-        const role = document.getElementById("emp-role").value || "KASIR";
-        if (!name || !email || passwordRaw.length < 6) {
-          showToast("Nama, email, dan password minimal 6 karakter wajib diisi", "error");
+        const role = state.modalEmpRole || "KASIR";
+        const bizId = ownedIds.includes(state.modalEmpBranchId) ? state.modalEmpBranchId : getCurrentBusiness().id;
+
+        const existing = existingEmpId ? state.employees.find(e => e.id === existingEmpId && ownedIds.includes(e.businessId)) : null;
+
+        if (role === "ADMIN") {
+          const totalAdminsAfter = state.employees.filter(e =>
+            ownedIds.includes(e.businessId) &&
+            e.role === "ADMIN" &&
+            (!existing || e.id !== existing.id)
+          ).length + 1;
+
+          if (totalAdminsAfter > maxBranches) {
+            closeModal();
+            this.openBuyBranchPackageModal();
+            return;
+          }
+        }
+
+        if (!name || !email) {
+          showToast("Nama dan email wajib diisi", "error");
           return;
         }
-        const password = await hashPasswordText(passwordRaw);
-        const rec = { id: "emp_" + Date.now(), businessId: getCurrentBusiness().id, name, email, password, phone, role, active: true };
-        state.employees.push(rec);
+        if (!existing && passwordRaw.length < 6) {
+          showToast("Password minimal 6 karakter wajib diisi", "error");
+          return;
+        }
+        if (existing && passwordRaw && passwordRaw.length < 6) {
+          showToast("Password baru minimal 6 karakter", "error");
+          return;
+        }
+
+        const password = passwordRaw ? await hashPasswordText(passwordRaw) : existing.password;
+        const rec = {
+          id: existing ? existing.id : ("emp_" + Date.now()),
+          businessId: bizId,
+          name,
+          email,
+          password,
+          phone,
+          role,
+          active: existing ? (existing.active !== false) : true
+        };
+
+        if (existing) {
+          state.employees = state.employees.map(e => e.id === rec.id ? rec : e);
+        } else {
+          state.employees.push(rec);
+        }
+
         saveStateToStorage();
         syncRecordToCloud("employees", rec);
         closeModal();
-        showToast("Karyawan ditambahkan");
+        showToast(existing ? "Data Admin / Staf diperbarui" : "Admin / Staf ditambahkan");
+        renderApp();
+      },
+
+      toggleEmployeeActive(empId) {
+        if (state.currentUser?.role !== "OWNER") return;
+        const ownedIds = getOwnerBusinesses(state.currentUser.id).map(b => b.id);
+        const emp = state.employees.find(e => e.id === empId && ownedIds.includes(e.businessId));
+        if (!emp) return;
+        emp.active = emp.active === false ? true : false;
+        saveStateToStorage();
+        syncRecordToCloud("employees", emp);
+        showToast(emp.active ? `Akun ${emp.name} diaktifkan` : `Akun ${emp.name} dinonaktifkan`);
+        renderApp();
+      },
+
+      deleteEmployee(empId) {
+        if (state.currentUser?.role !== "OWNER") return;
+        const ownedIds = getOwnerBusinesses(state.currentUser.id).map(b => b.id);
+        const emp = state.employees.find(e => e.id === empId && ownedIds.includes(e.businessId));
+        if (!emp) return;
+        state.employees = state.employees.filter(e => e.id !== empId);
+        saveStateToStorage();
+        deleteRecordFromCloud("employees", empId);
+        showToast(`Akun ${emp.name} dihapus`);
         renderApp();
       },
 
@@ -2328,54 +3491,59 @@
         const own = ownerId ? state.owners.find(o => o.id === ownerId) : null;
         const biz = own ? (state.businesses.find(b => b.id === own.businessId) || {}) : {};
         const defaultExp = own?.expiresAt || biz?.expiresAt || addDaysToDateStr(getJakartaNow().dateStr, 30);
+        const defaultMaxBranches = own ? getOwnerBranchQuota(own.id) : 1;
+        state.modalOwnerRole = "OWNER";
+        state.modalOwnerPlan = biz?.plan || "STARTER";
 
         openModal(`
           <div class="space-y-3 text-xs">
-            <div class="font-extrabold text-base text-slate-900">${own ? "Edit Owner & Masa Aktif" : "Daftarkan Owner & Tenant"}</div>
+            <div class="font-bold text-base text-slate-900">${own ? "Edit Owner, Kuota Cabang & Masa Aktif" : "Daftarkan Owner & Tenant"}</div>
             <div>
-              <label class="block font-bold text-slate-700 mb-1">Nama Owner</label>
+              <label class="block font-semibold text-slate-700 mb-1">Nama Owner</label>
               <input type="text" id="own-f-name" value="${escapeHtml(own?.name || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
             </div>
             <div>
-              <label class="block font-bold text-slate-700 mb-1">Email Login</label>
+              <label class="block font-semibold text-slate-700 mb-1">Email Login Owner</label>
               <input type="text" id="own-f-email" value="${escapeHtml(own?.email || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
             </div>
             <div>
-              <label class="block font-bold text-slate-700 mb-1">Password (${own ? "isi untuk ganti / pertahankan" : "wajib"})</label>
+              <label class="block font-semibold text-slate-700 mb-1">Password (${own ? "isi untuk ganti / pertahankan" : "wajib"})</label>
               <input type="password" id="own-f-pass" placeholder="${own ? "Kosongkan jika tidak diganti" : "Masukkan password"}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Role</label>
-                <select id="own-f-role" class="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white">
-                  <option value="OWNER" ${(own?.role || "OWNER") === "OWNER" ? "selected" : ""}>OWNER</option>
-                  <option value="ADMIN" ${own?.role === "ADMIN" ? "selected" : ""}>ADMIN</option>
-                </select>
+                <label class="block font-semibold text-slate-700 mb-1">Kuota Cabang & Admin</label>
+                <input type="number" id="own-f-branches" min="1" max="50" value="${defaultMaxBranches}" class="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-purple-700" />
               </div>
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Masa Aktif Sampai</label>
+                <label class="block font-semibold text-slate-700 mb-1">Masa Aktif Sampai</label>
                 <input type="date" id="own-f-exp" value="${escapeHtml(defaultExp)}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
               </div>
             </div>
             <div>
-              <label class="block font-bold text-slate-700 mb-1">Nama Usaha / Tenant</label>
+              <label class="block font-semibold text-slate-700 mb-1">Nama Usaha Utama</label>
               <input type="text" id="own-f-biz" value="${escapeHtml(biz?.name || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <label class="block font-bold text-slate-700 mb-1">Paket</label>
-                <select id="own-f-plan" class="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white">
-                  ${state.pricingPlans.map(p => `<option value="${escapeHtml(p.id)}" ${(biz?.plan || "STARTER") === p.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
-                </select>
+                <label class="block font-semibold text-slate-700 mb-1">Paket</label>
+                <div id="own-plan-dd-wrap">
+                  ${renderCustomDropdown({
+                    id: "modal-own-plan-dd",
+                    value: state.modalOwnerPlan,
+                    options: state.pricingPlans.map(p => ({ value: p.id, label: p.name, sub: `${formatRupiah(p.monthlyPrice)}/bln` })),
+                    onSelectFn: "setModalOwnerPlan"
+                  })}
+                </div>
               </div>
               <div>
-                <label class="block font-bold text-slate-700 mb-1">No. WA</label>
-                <input type="text" id="own-f-phone" value="${escapeHtml(own?.phone || biz?.phone || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
+                <label class="block font-semibold text-slate-700 mb-1">No. WA</label>
+                <input type="text" id="own-f-phone" value="${escapeHtml(own?.phone || biz?.phone || "")}" class="w-full px-3 py-2.5 rounded-xl border border-slate-200" />
               </div>
             </div>
             <div class="flex justify-end gap-2 pt-2">
-              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 font-bold">Batal</button>
-              <button type="button" onclick="window.appActions.saveOwnerAccount('${escapeHtml(own?.id || "")}')" class="px-4 py-2 rounded-xl theme-primary-bg text-white font-bold">Simpan</button>
+              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 font-semibold">Batal</button>
+              <button type="button" onclick="window.appActions.saveOwnerAccount('${escapeHtml(own?.id || "")}')" class="px-4 py-2 rounded-xl theme-primary-bg text-white font-semibold">Simpan</button>
             </div>
           </div>
         `);
@@ -2386,10 +3554,11 @@
         const name = (document.getElementById("own-f-name").value || "").trim();
         const email = (document.getElementById("own-f-email").value || "").trim();
         const passRaw = (document.getElementById("own-f-pass").value || "").trim();
-        const role = document.getElementById("own-f-role").value || "OWNER";
+        const role = "OWNER";
+        const maxBranches = Math.max(1, Number(document.getElementById("own-f-branches")?.value || 1));
         const expiresAt = document.getElementById("own-f-exp").value || addDaysToDateStr(getJakartaNow().dateStr, 30);
         const bizName = (document.getElementById("own-f-biz").value || "").trim();
-        const plan = document.getElementById("own-f-plan").value || "STARTER";
+        const plan = state.modalOwnerPlan || "STARTER";
         const phone = (document.getElementById("own-f-phone").value || "").trim();
 
         if (!name || !email || !bizName) {
@@ -2415,6 +3584,7 @@
           password,
           phone,
           role,
+          maxBranches,
           status: existingOwn?.status || "ACTIVE",
           expiresAt
         };
@@ -2422,6 +3592,7 @@
         const existingBiz = state.businesses.find(b => b.id === businessId);
         const bizRec = Object.assign({}, existingBiz || {}, {
           id: businessId,
+          ownerId,
           name: bizName,
           ownerName: name,
           phone,
@@ -2448,7 +3619,7 @@
         syncRecordToCloud("owners", ownerRec);
         syncRecordToCloud("businesses", bizRec);
         closeModal();
-        showToast("Data Owner & masa aktif tersimpan");
+        showToast("Data Owner, kuota cabang & masa aktif tersimpan");
         renderApp();
       },
 
@@ -2523,25 +3694,113 @@
         reader.onload = () => {
           state.platformBranding[fieldKey] = reader.result;
           applyThemeVariables();
-          showToast("File berhasil dimuat, klik Simpan Pengaturan Global Web");
+          showToast("File dimuat, klik Simpan Pengaturan Tampilan");
         };
         reader.readAsDataURL(file);
       },
 
-      savePlatformBranding() {
+      syncHexInput(key, hexVal) {
+        const hexInput = document.getElementById(`hex-${key}`);
+        if (hexInput) hexInput.value = hexVal.toUpperCase();
+        state.platformBranding[key] = hexVal;
+        applyThemeVariables();
+      },
+
+      syncPickerInput(key, rawVal) {
+        let v = String(rawVal || "").trim();
+        if (v && !v.startsWith("#")) v = "#" + v;
+        if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+          const picker = document.getElementById(`picker-${key}`);
+          if (picker) picker.value = v;
+          state.platformBranding[key] = v;
+          applyThemeVariables();
+        }
+      },
+
+      previewIconStyle(styleVal) {
+        state.platformBranding.iconStyle = styleVal === "solid" ? "solid" : "line";
+        renderApp();
+      },
+
+      resetPlatformColors() {
         if (state.currentUser?.role !== "SUPER_ADMIN") return;
         state.platformBranding = Object.assign({}, state.platformBranding, {
-          platformName: (document.getElementById("pb-name").value || "SSmart Laundry").trim(),
-          supportWhatsApp: (document.getElementById("pb-wa").value || "").trim(),
-          footerText: (document.getElementById("pb-footer").value || "").trim(),
-          primaryColor: document.getElementById("pb-primary").value || "#2563eb",
-          bgColor: document.getElementById("pb-bg").value || "#f8fafc",
-          sidebarColor: document.getElementById("pb-sidebar").value || "#ffffff"
+          primaryColor: DEFAULT_PLATFORM_BRANDING.primaryColor,
+          primaryDarkColor: DEFAULT_PLATFORM_BRANDING.primaryDarkColor,
+          btnColor: DEFAULT_PLATFORM_BRANDING.btnColor,
+          btnActiveColor: DEFAULT_PLATFORM_BRANDING.btnActiveColor,
+          accentColor: DEFAULT_PLATFORM_BRANDING.accentColor,
+          bgColor: DEFAULT_PLATFORM_BRANDING.bgColor,
+          surfaceColor: DEFAULT_PLATFORM_BRANDING.surfaceColor,
+          sidebarColor: DEFAULT_PLATFORM_BRANDING.sidebarColor,
+          textColor: DEFAULT_PLATFORM_BRANDING.textColor,
+          textMutedColor: DEFAULT_PLATFORM_BRANDING.textMutedColor,
+          iconColor: DEFAULT_PLATFORM_BRANDING.iconColor,
+          iconStyle: "line"
         });
         applyThemeVariables();
         saveStateToStorage();
         syncGlobalToCloud();
-        showToast("Pengaturan global web disimpan");
+        showToast("Warna & icon dikembalikan ke default");
+        renderApp();
+      },
+
+      savePlatformBranding() {
+        if (state.currentUser?.role !== "SUPER_ADMIN") return;
+        const readHex = (key, fallback) => {
+          const raw = (document.getElementById(`hex-${key}`)?.value || "").trim();
+          const normalized = raw.startsWith("#") ? raw : "#" + raw;
+          return /^#[0-9A-Fa-f]{6}$/.test(normalized) ? normalized : fallback;
+        };
+
+        const primaryColor = readHex("primaryColor", "#2563eb");
+        const btnColor = readHex("btnColor", primaryColor);
+        const btnActiveColor = readHex("btnActiveColor", "#1e40af");
+        const textColor = readHex("textColor", "#0f172a");
+        const textMutedColor = readHex("textMutedColor", "#64748b");
+        const iconColor = readHex("iconColor", primaryColor);
+        const bgColor = readHex("bgColor", "#f8fafc");
+        const surfaceColor = readHex("surfaceColor", "#ffffff");
+        const sidebarColor = readHex("sidebarColor", "#ffffff");
+        const iconStyle = (state.platformBranding?.iconStyle || "line") === "solid" ? "solid" : "line";
+
+        state.platformBranding = Object.assign({}, state.platformBranding, {
+          platformName: (document.getElementById("pb-name").value || "SSmart Laundry").trim(),
+          supportWhatsApp: (document.getElementById("pb-wa").value || "").trim(),
+          footerText: (document.getElementById("pb-footer").value || "").trim(),
+          primaryColor,
+          primaryDarkColor: btnActiveColor,
+          btnColor,
+          btnActiveColor,
+          textColor,
+          textMutedColor,
+          iconColor,
+          bgColor,
+          surfaceColor,
+          sidebarColor,
+          iconStyle
+        });
+        applyThemeVariables();
+        saveStateToStorage();
+        syncGlobalToCloud();
+        showToast("Pengaturan tampilan & warna HEX disimpan");
+        renderApp();
+      },
+
+      selectGuideRoleToEdit(roleName) {
+        state.editingGuideRole = roleName || "KASIR";
+        renderApp();
+      },
+
+      saveRoleGuide() {
+        if (state.currentUser?.role !== "SUPER_ADMIN") return;
+        const roleKey = state.editingGuideRole || "KASIR";
+        const raw = document.getElementById("sa-guide-textarea")?.value || "";
+        const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+        state.roleGuides[roleKey] = lines.length ? lines : ["Panduan belum diisi."];
+        saveStateToStorage();
+        syncGlobalToCloud();
+        showToast(`Panduan untuk role ${roleKey} disimpan`);
         renderApp();
       },
 
@@ -2599,6 +3858,70 @@
         renderApp();
       },
 
+      handleBusinessQrisUpload(inputEl) {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") return;
+        const file = inputEl?.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const biz = getCurrentBusiness();
+          biz.qrisImageUrl = reader.result;
+          saveStateToStorage();
+          syncRecordToCloud("businesses", biz);
+          showToast("Gambar QRIS berhasil diunggah");
+          renderApp();
+        };
+        reader.readAsDataURL(file);
+      },
+
+      removeBusinessQris() {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") return;
+        const biz = getCurrentBusiness();
+        biz.qrisImageUrl = "";
+        saveStateToStorage();
+        syncRecordToCloud("businesses", biz);
+        showToast("Gambar QRIS dihapus");
+        renderApp();
+      },
+
+      addPaymentAccount() {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") return;
+        const label = (document.getElementById("new-acc-label")?.value || "").trim();
+        const accountNumber = (document.getElementById("new-acc-number")?.value || "-").trim();
+        const accountHolder = (document.getElementById("new-acc-holder")?.value || "-").trim();
+        if (!label) {
+          showToast("Nama metode/bank wajib diisi", "error");
+          return;
+        }
+        const biz = getCurrentBusiness();
+        if (!Array.isArray(biz.paymentAccounts)) biz.paymentAccounts = [];
+        biz.paymentAccounts.push({
+          id: "acc_" + Date.now(),
+          methodType: label.toUpperCase().includes("QRIS") ? "QRIS" : "TRANSFER",
+          label,
+          accountNumber: accountNumber || "-",
+          accountHolder: accountHolder || "-"
+        });
+        saveStateToStorage();
+        syncRecordToCloud("businesses", biz);
+        showToast("Metode pembayaran / rekening ditambahkan");
+        renderApp();
+      },
+
+      removePaymentAccount(accId) {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") return;
+        const biz = getCurrentBusiness();
+        biz.paymentAccounts = (biz.paymentAccounts || []).filter(a => a.id !== accId);
+        saveStateToStorage();
+        syncRecordToCloud("businesses", biz);
+        showToast("Metode pembayaran dihapus");
+        renderApp();
+      },
+
       async startQrScanner() {
         if (!window.Html5Qrcode) {
           showToast("Library kamera tidak tersedia", "error");
@@ -2606,39 +3929,65 @@
         }
         try {
           if (html5QrInstance) {
-            await html5QrInstance.stop();
+            try { await html5QrInstance.stop(); } catch (e) {}
+            try { html5QrInstance.clear(); } catch (e) {}
+            html5QrInstance = null;
           }
+
+          const onDecodeSuccess = (decodedText) => {
+            let inv = String(decodedText || "").trim();
+            try {
+              const u = new URL(inv);
+              if (u.searchParams.get("track")) inv = u.searchParams.get("track");
+              else if (u.hash && u.hash.includes("track=")) inv = decodeURIComponent(u.hash.split("track=")[1]);
+            } catch (e) {}
+            this.stopQrScanner();
+            const found = state.orders.find(o => String(o.invoiceNumber).toUpperCase() === inv.toUpperCase());
+            if (found) {
+              state.activeTab = "orders";
+              state.selectedOrderId = found.id;
+              renderApp();
+              showToast(`Invoice ${found.invoiceNumber} ditemukan`);
+            } else {
+              showToast(`Invoice ${inv} tidak ditemukan`, "error");
+            }
+          };
+
+          const config = { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0 };
           html5QrInstance = new window.Html5Qrcode("qr-reader");
-          await html5QrInstance.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: 200 },
-            (decodedText) => {
-              let inv = String(decodedText || "").trim();
-              try {
-                const u = new URL(inv);
-                if (u.searchParams.get("track")) inv = u.searchParams.get("track");
-              } catch (e) {}
-              this.stopQrScanner();
-              const found = state.orders.find(o => String(o.invoiceNumber).toUpperCase() === inv.toUpperCase());
-              if (found) {
-                state.activeTab = "orders";
-                state.selectedOrderId = found.id;
-                renderApp();
-                showToast(`Invoice ${found.invoiceNumber} ditemukan`);
-              } else {
-                showToast(`Invoice ${inv} tidak ditemukan`, "error");
-              }
-            },
-            () => {}
-          );
+
+          let started = false;
+          try {
+            await html5QrInstance.start({ facingMode: "environment" }, config, onDecodeSuccess, () => {});
+            started = true;
+          } catch (firstErr) {
+            const cameras = await window.Html5Qrcode.getCameras();
+            if (cameras && cameras.length > 0) {
+              const backCam = cameras.find(c => /back|rear|environment/i.test(c.label)) || cameras[cameras.length - 1];
+              await html5QrInstance.start(backCam.id, config, onDecodeSuccess, () => {});
+              started = true;
+            } else {
+              throw firstErr;
+            }
+          }
+
+          if (started) {
+            showToast("Kamera scanner aktif");
+          }
         } catch (err) {
-          showToast("Gagal mengakses kamera", "error");
+          const msg = String(err?.message || err || "");
+          if (/Permission|NotAllowed/i.test(msg)) {
+            showToast("Izin kamera ditolak browser. Aktifkan izin kamera pada situs ini.", "error");
+          } else {
+            showToast("Kamera tidak terdeteksi atau sedang dipakai aplikasi lain", "error");
+          }
         }
       },
 
       async stopQrScanner() {
         if (html5QrInstance) {
           try { await html5QrInstance.stop(); } catch (e) {}
+          try { html5QrInstance.clear(); } catch (e) {}
           html5QrInstance = null;
         }
       },
@@ -2659,14 +4008,17 @@
 
     function bootstrapApplication() {
       loadStateFromStorage();
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const trackParam = params.get("track");
-        if (trackParam) {
-          state.publicPortalMode = true;
-          state.publicTrackQuery = trackParam.trim().toUpperCase();
+      applyRouteFromUrl();
+      document.addEventListener("click", () => {
+        if (state.openDropdownId) {
+          state.openDropdownId = null;
+          renderApp();
         }
-      } catch (e) {}
+      });
+      window.addEventListener("hashchange", () => {
+        applyRouteFromUrl();
+        renderApp();
+      });
       renderApp();
       connectToFirebaseRealtime();
     }
