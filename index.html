@@ -261,6 +261,39 @@
     const STORAGE_KEY = "ssmart_laundry_state_v7";
     const COOKIE_CONSENT_KEY = "ssmart_cookie_notice_dismissed_v1";
 
+    // --- SHA-256 PASSWORD HASHING UTILITIES ---
+    const SHA256_PREFIX = "sha256:";
+
+    function isSha256Hash(val) {
+      return typeof val === "string" && /^sha256:[a-f0-9]{64}$/i.test(val.trim());
+    }
+
+    async function sha256Hex(plainText) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(String(plainText ?? ""));
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    async function formatSha256Password(rawOrHashed) {
+      const val = String(rawOrHashed ?? "");
+      if (!val) return "";
+      if (isSha256Hash(val)) return val.toLowerCase();
+      const hex = await sha256Hex(val);
+      return `${SHA256_PREFIX}${hex}`;
+    }
+
+    async function verifyPasswordAgainstStored(inputPlain, storedPassword) {
+      const stored = String(storedPassword ?? "");
+      if (!stored) return false;
+      if (isSha256Hash(stored)) {
+        const inputHashed = await formatSha256Password(inputPlain);
+        return inputHashed === stored.toLowerCase();
+      }
+      return String(inputPlain) === stored;
+    }
+
     let db = null;
     let auth = null;
     let cloudConnected = false;
@@ -403,17 +436,15 @@ Butuh bantuan aktivasi akun Owner, upgrade jumlah cabang, atau kendala teknis pe
 - Layanan Konsultasi: Gratis panduan setup awal untuk outlet baru.`,
       changelogText: `CATATAN PEMBARUAN SISTEM (CHANGELOG)
 
-v2.6 — Pembaruan Terbaru
-- Landing Page SaaS lengkap dengan simulasi interaktif, slider testimoni geser, & FAQ.
-- Header aplikasi tetap menempel (sticky) saat halaman di-scroll di semua ukuran layar.
-- Pusat Legal & Bantuan terpadu (Disclaimer, Kebijakan Privasi UU PDP, Refund Policy, SLA, & Panduan Pengguna).
-- Kompresi otomatis gambar QRIS & Logo agar ringan dan hemat penyimpanan cloud.
-- Laporan Keuangan dengan grafik balok arus kas, grafik lingkaran layanan, & export Excel (.csv).`,
+v2.7 — Pembaruan Keamanan SHA-256
+- Enkripsi otomatis seluruh password (Super Admin, Owner, Admin, Kasir, Operator) menggunakan SHA-256 (sha256:...) sehingga tidak ada kata sandi teks biasa yang terlihat saat Inspect Element maupun di database.
+- Pemilih Font Global di Super Admin (Poppins, Plus Jakarta Sans, Inter, Lato, Open Sans, Roboto, Montserrat, dan lainnya).
+- Landing Page SaaS lengkap dengan simulasi interaktif, slider testimoni geser, & FAQ.`,
       superAdminAuth: {
         id: "usr_super_admin",
         name: "Super Admin",
         email: "admin",
-        password: "admin",
+        password: "sha256:8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
         role: "SUPER_ADMIN"
       },
       plans: {
@@ -476,7 +507,7 @@ v2.6 — Pembaruan Terbaru
           businessId: "biz_ssmart_01",
           name: "Budi Santoso",
           email: "owner@ssmart.id",
-          password: "123",
+          password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
           phone: "6281299887766",
           role: "OWNER",
           plan: "PRO",
@@ -491,7 +522,7 @@ v2.6 — Pembaruan Terbaru
           businessId: "biz_ssmart_01",
           name: "Siti Admin",
           email: "admin@ssmart.id",
-          password: "123",
+          password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
           phone: "081211112222",
           role: "ADMIN",
           active: true
@@ -501,7 +532,7 @@ v2.6 — Pembaruan Terbaru
           businessId: "biz_ssmart_01",
           name: "Rina Kasir",
           email: "kasir@ssmart.id",
-          password: "123",
+          password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
           phone: "081233334444",
           role: "KASIR",
           active: true
@@ -511,7 +542,7 @@ v2.6 — Pembaruan Terbaru
           businessId: "biz_ssmart_01",
           name: "Deni Operator",
           email: "operator@ssmart.id",
-          password: "123",
+          password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
           phone: "081255556666",
           role: "OPERATOR",
           active: true
@@ -922,6 +953,40 @@ v2.6 — Pembaruan Terbaru
       }
     }
 
+    async function migrateLegacyPlainPasswordsToSha256() {
+      let changed = false;
+      const sa = state.platformBranding?.superAdminAuth;
+      if (sa && sa.password && !isSha256Hash(sa.password)) {
+        sa.password = await formatSha256Password(sa.password);
+        changed = true;
+      }
+      if (changed) {
+        syncPlatformBrandingToCloud();
+      }
+
+      for (let i = 0; i < (state.owners || []).length; i++) {
+        const o = state.owners[i];
+        if (o && o.password && !isSha256Hash(o.password)) {
+          o.password = await formatSha256Password(o.password);
+          syncRecordToCloud("owners", o);
+          changed = true;
+        }
+      }
+
+      for (let i = 0; i < (state.employees || []).length; i++) {
+        const emp = state.employees[i];
+        if (emp && emp.password && !isSha256Hash(emp.password)) {
+          emp.password = await formatSha256Password(emp.password);
+          syncRecordToCloud("employees", emp);
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        saveStateToStorage();
+      }
+    }
+
     function loadStateFromStorage() {
       try {
         state.cookieNoticeDismissed = localStorage.getItem(COOKIE_CONSENT_KEY) === "1";
@@ -1218,9 +1283,6 @@ v2.6 — Pembaruan Terbaru
 
     async function initFirebase() {
       try {
-        if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey === "AIzaSyCuY0JO7eIFl656y3Nw92sp9N850YBVJEI") {
-          // Konfigurasi valid milik proyek ssmart-laundry
-        }
         const app = initializeApp(firebaseConfig);
         auth = getAuth(app);
         db = getFirestore(app);
@@ -1229,6 +1291,7 @@ v2.6 — Pembaruan Terbaru
           if (user) {
             cloudConnected = true;
             attachFirestoreListeners();
+            migrateLegacyPlainPasswordsToSha256();
             renderApp({ sidebarOnly: true });
           } else {
             try {
@@ -1252,7 +1315,7 @@ v2.6 — Pembaruan Terbaru
 
       try {
         const configDocRef = doc(db, "artifacts", APP_ID, "public", "data", "platform_config", "main");
-        onSnapshot(configDocRef, (snap) => {
+        onSnapshot(configDocRef, async (snap) => {
           if (snap.exists()) {
             const remoteCfg = snap.data();
             const remoteHash = computeCollectionHash(remoteCfg);
@@ -1270,6 +1333,7 @@ v2.6 — Pembaruan Terbaru
                   ...(remoteCfg.plans || {})
                 }
               };
+              await migrateLegacyPlainPasswordsToSha256();
               saveStateToStorage();
               scheduleCloudRender();
             }
@@ -1281,7 +1345,7 @@ v2.6 — Pembaruan Terbaru
       cols.forEach((colName) => {
         try {
           const colRef = collection(db, "artifacts", APP_ID, "public", "data", colName);
-          onSnapshot(colRef, (snapshot) => {
+          onSnapshot(colRef, async (snapshot) => {
             const docs = [];
             snapshot.forEach((d) => docs.push({ id: d.id, ...d.data() }));
             const nextHash = computeCollectionHash(docs);
@@ -1289,6 +1353,9 @@ v2.6 — Pembaruan Terbaru
               lastSnapshotHashes[colName] = nextHash;
               if (docs.length > 0 || cloudConnected) {
                 state[colName] = docs;
+                if (colName === "owners" || colName === "employees") {
+                  await migrateLegacyPlainPasswordsToSha256();
+                }
                 saveStateToStorage();
                 scheduleCloudRender();
               }
@@ -1583,14 +1650,18 @@ v2.6 — Pembaruan Terbaru
       `;
     }
 
-    // --- AUTHENTICATION ---
-    function handleLogin(e) {
+    // --- AUTHENTICATION (SHA-256 VERIFICATION) ---
+    async function handleLogin(e) {
       e.preventDefault();
       const email = document.getElementById("login-email").value.trim().toLowerCase();
       const password = document.getElementById("login-password").value;
 
       const sa = state.platformBranding.superAdminAuth;
-      if (email === String(sa.email).toLowerCase() && password === sa.password) {
+      if (email === String(sa.email).toLowerCase() && await verifyPasswordAgainstStored(password, sa.password)) {
+        if (!isSha256Hash(sa.password)) {
+          sa.password = await formatSha256Password(password);
+          syncPlatformBrandingToCloud();
+        }
         state.currentUser = { id: sa.id, name: sa.name, email: sa.email, role: "SUPER_ADMIN" };
         state.activeTab = "dashboard";
         saveStateToStorage();
@@ -1600,20 +1671,31 @@ v2.6 — Pembaruan Terbaru
         return;
       }
 
-      const owner = state.owners.find(o => String(o.email).toLowerCase() === email && o.password === password);
-      if (owner) {
-        const sub = getSubscriptionState(owner);
+      let matchedOwner = null;
+      for (const o of state.owners) {
+        if (String(o.email).toLowerCase() === email && await verifyPasswordAgainstStored(password, o.password)) {
+          matchedOwner = o;
+          break;
+        }
+      }
+
+      if (matchedOwner) {
+        const sub = getSubscriptionState(matchedOwner);
         if (sub.isPurgeable) {
-          purgeOwnerDataCascade(owner.id, true);
+          purgeOwnerDataCascade(matchedOwner.id, true);
           showToast("Akun Anda telah melewati masa tenggang 7 hari dan dihapus otomatis.", "error");
           return;
         }
+        if (!isSha256Hash(matchedOwner.password)) {
+          matchedOwner.password = await formatSha256Password(password);
+          syncRecordToCloud("owners", matchedOwner);
+        }
         state.currentUser = {
-          id: owner.id,
-          ownerId: owner.id,
-          businessId: owner.businessId,
-          name: owner.name,
-          email: owner.email,
+          id: matchedOwner.id,
+          ownerId: matchedOwner.id,
+          businessId: matchedOwner.businessId,
+          name: matchedOwner.name,
+          email: matchedOwner.email,
           role: "OWNER"
         };
         const ownedBiz = getAccessibleBusinesses();
@@ -1621,35 +1703,46 @@ v2.6 — Pembaruan Terbaru
         state.activeTab = "dashboard";
         saveStateToStorage();
         closeModal();
-        showToast(`Halo, ${owner.name}!`, "success");
+        showToast(`Halo, ${matchedOwner.name}!`, "success");
         renderApp({ forceShellRebuild: true });
         return;
       }
 
-      const emp = state.employees.find(em => String(em.email).toLowerCase() === email && em.password === password);
-      if (emp) {
-        if (emp.active === false) {
+      let matchedEmp = null;
+      for (const em of state.employees) {
+        if (String(em.email).toLowerCase() === email && await verifyPasswordAgainstStored(password, em.password)) {
+          matchedEmp = em;
+          break;
+        }
+      }
+
+      if (matchedEmp) {
+        if (matchedEmp.active === false) {
           showToast("Akun karyawan Anda sedang dinonaktifkan oleh Owner.", "error");
           return;
         }
-        const ownerForEmp = getOwnerForBusiness(emp.businessId);
+        const ownerForEmp = getOwnerForBusiness(matchedEmp.businessId);
         const sub = getSubscriptionState(ownerForEmp);
         if (sub.isPurgeable) {
           showToast("Masa aktif outlet ini telah berakhir dan melewati masa tenggang.", "error");
           return;
         }
+        if (!isSha256Hash(matchedEmp.password)) {
+          matchedEmp.password = await formatSha256Password(password);
+          syncRecordToCloud("employees", matchedEmp);
+        }
         state.currentUser = {
-          id: emp.id,
-          businessId: emp.businessId,
-          name: emp.name,
-          email: emp.email,
-          role: emp.role
+          id: matchedEmp.id,
+          businessId: matchedEmp.businessId,
+          name: matchedEmp.name,
+          email: matchedEmp.email,
+          role: matchedEmp.role
         };
-        state.activeBusinessId = emp.businessId;
-        state.activeTab = emp.role === "KASIR" ? "pos" : "dashboard";
+        state.activeBusinessId = matchedEmp.businessId;
+        state.activeTab = matchedEmp.role === "KASIR" ? "pos" : "dashboard";
         saveStateToStorage();
         closeModal();
-        showToast(`Login berhasil sebagai ${emp.name} (${emp.role})`, "success");
+        showToast(`Login berhasil sebagai ${matchedEmp.name} (${matchedEmp.role})`, "success");
         renderApp({ forceShellRebuild: true });
         return;
       }
@@ -2989,8 +3082,8 @@ v2.6 — Pembaruan Terbaru
                 <input id="own-email" type="email" required value="${esc(existing?.email || "")}" class="w-full px-3 py-2 rounded-xl" />
               </div>
               <div>
-                <label class="block text-slate-600 font-medium mb-1">Password Login</label>
-                <input id="own-pass" required value="${esc(existing?.password || "123456")}" class="w-full px-3 py-2 rounded-xl" />
+                <label class="block text-slate-600 font-medium mb-1">${existing ? "Password Baru (Kosongkan jika tetap)" : "Password Login"}</label>
+                <input id="own-pass" type="password" ${existing ? "" : "required"} placeholder="${existing ? "Biarkan kosong jika tidak diubah" : "Masukkan sandi..."}" class="w-full px-3 py-2 rounded-xl" />
               </div>
             </div>
 
@@ -3001,7 +3094,7 @@ v2.6 — Pembaruan Terbaru
               </div>
             ` : `
               <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700">
-                Outlet Utama: <b>${esc(biz?.name || "-")}</b>
+                Outlet Utama: <b>${esc(biz?.name || "-")}</b> • Enkripsi: <span class="font-mono text-[10px] brand-text">SHA-256 Aktif</span>
               </div>
             `}
 
@@ -3036,12 +3129,12 @@ v2.6 — Pembaruan Terbaru
       `);
     }
 
-    function saveOwnerAccount(e, ownerId) {
+    async function saveOwnerAccount(e, ownerId) {
       e.preventDefault();
       const name = document.getElementById("own-name").value.trim();
       const phone = document.getElementById("own-phone").value.trim();
       const email = document.getElementById("own-email").value.trim().toLowerCase();
-      const password = document.getElementById("own-pass").value;
+      const rawPassword = document.getElementById("own-pass").value;
       const planId = document.getElementById("own-plan").value;
       const expiresAt = document.getElementById("own-expires").value;
       const planObj = state.platformBranding.plans[planId] || { id: planId, maxBranches: 3 };
@@ -3049,12 +3142,16 @@ v2.6 — Pembaruan Terbaru
       if (ownerId) {
         const idx = state.owners.findIndex(o => o.id === ownerId);
         if (idx !== -1) {
+          const finalPassword = rawPassword.trim()
+            ? await formatSha256Password(rawPassword)
+            : state.owners[idx].password;
+
           state.owners[idx] = {
             ...state.owners[idx],
             name,
             phone,
             email,
-            password,
+            password: finalPassword,
             plan: planId,
             maxBranches: planObj.maxBranches,
             expiresAt
@@ -3068,11 +3165,12 @@ v2.6 — Pembaruan Terbaru
             }
           });
         }
-        showToast("Paket & data Owner berhasil diperbarui.", "success");
+        showToast("Paket & data Owner berhasil diperbarui (SHA-256).", "success");
       } else {
         const newOwnerId = "own_" + Date.now();
         const newBizId = "biz_" + Date.now();
         const bizName = document.getElementById("own-biz-name").value.trim();
+        const hashedPass = await formatSha256Password(rawPassword || "123456");
 
         const newBiz = {
           id: newBizId,
@@ -3095,7 +3193,7 @@ v2.6 — Pembaruan Terbaru
           businessId: newBizId,
           name,
           email,
-          password,
+          password: hashedPass,
           phone,
           role: "OWNER",
           plan: planId,
@@ -3107,7 +3205,7 @@ v2.6 — Pembaruan Terbaru
         state.owners.push(newOwner);
         syncRecordToCloud("businesses", newBiz);
         syncRecordToCloud("owners", newOwner);
-        showToast("Owner & Outlet baru berhasil didaftarkan.", "success");
+        showToast("Owner & Outlet baru berhasil didaftarkan (SHA-256).", "success");
       }
 
       closeModal();
@@ -3482,7 +3580,7 @@ v2.6 — Pembaruan Terbaru
           serviceId: srv.id,
           serviceName: srv.name,
           unit: srv.unit || "kg",
-          qty: String(srv.unit || "kg").toLowerCase() === "kg" ? 1 : 1,
+          qty: 1,
           price: Number(srv.price) || 0,
           estHours: Number(srv.estHours) || 24
         });
@@ -4343,18 +4441,7 @@ v2.6 — Pembaruan Terbaru
               </div>
               <div>
                 <label class="block text-slate-600 font-medium mb-1">Satuan *</label>
-                ${renderCustomDropdown({
-                  id: "dd-srv-unit",
-                  value: existing?.unit || "kg",
-                  options: [
-                    { value: "kg", label: "kg (Kiloan)" },
-                    { value: "pcs", label: "pcs (Satuan)" },
-                    { value: "pasang", label: "pasang (Sepatu/Sandal)" },
-                    { value: "meter", label: "meter (Karpet/Gorden)" }
-                  ],
-                  onSelectExpr: "setHiddenFieldAndRender('srv-unit', '__VAL__')"
-                })}
-                <input id="srv-unit" type="hidden" value="${esc(existing?.unit || "kg")}" />
+                <input id="srv-unit" required value="${esc(existing?.unit || "kg")}" placeholder="kg / pcs / pasang / meter" class="w-full px-3 py-2 rounded-xl" />
               </div>
               <div>
                 <label class="block text-slate-600 font-medium mb-1">Tarif Harga (Rp) *</label>
@@ -4380,7 +4467,7 @@ v2.6 — Pembaruan Terbaru
       const biz = getActiveBusiness();
       const name = document.getElementById("srv-name").value.trim();
       const category = document.getElementById("srv-cat").value.trim() || "Umum";
-      const unit = document.getElementById("srv-unit").value;
+      const unit = document.getElementById("srv-unit").value.trim() || "kg";
       const price = Math.max(0, Number(document.getElementById("srv-price").value) || 0);
       const estHours = Math.max(1, Number(document.getElementById("srv-hours").value) || 24);
 
@@ -4862,7 +4949,7 @@ v2.6 — Pembaruan Terbaru
                         ${emp.active !== false ? "Aktif" : "Nonaktif"}
                       </span>
                     </div>
-                    <p class="text-[11px] text-slate-500 mt-1 truncate">${esc(emp.email)} • ${esc(emp.phone || "-")}</p>
+                    <p class="text-[11px] text-slate-500 mt-1 truncate">${esc(emp.email)} • ${esc(emp.phone || "-")} • <span class="font-mono text-[10px]">SHA-256</span></p>
                   </div>
                   <div class="flex items-center gap-1.5 shrink-0">
                     <button type="button" onclick="openEmployeeFormModal('${esc(emp.id)}')" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 text-xs font-semibold">Edit</button>
@@ -4985,8 +5072,8 @@ v2.6 — Pembaruan Terbaru
                 <input id="emp-email" required value="${esc(existing?.email || "")}" class="w-full px-3 py-2 rounded-xl" />
               </div>
               <div>
-                <label class="block text-slate-600 font-medium mb-1">Password Login *</label>
-                <input id="emp-pass" required value="${esc(existing?.password || "123")}" class="w-full px-3 py-2 rounded-xl" />
+                <label class="block text-slate-600 font-medium mb-1">${existing ? "Password Baru (Opsional)" : "Password Login *"}</label>
+                <input id="emp-pass" type="password" ${existing ? "" : "required"} placeholder="${existing ? "Kosongkan jika tetap" : "Masukkan sandi..."}" class="w-full px-3 py-2 rounded-xl" />
               </div>
             </div>
             <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -4998,7 +5085,7 @@ v2.6 — Pembaruan Terbaru
       `);
     }
 
-    function saveEmployee(e, empId) {
+    async function saveEmployee(e, empId) {
       e.preventDefault();
       if (!assertBusinessOperational()) return;
       const biz = getActiveBusiness();
@@ -5006,20 +5093,25 @@ v2.6 — Pembaruan Terbaru
       const role = document.getElementById("emp-role").value;
       const phone = document.getElementById("emp-phone").value.trim();
       const email = document.getElementById("emp-email").value.trim().toLowerCase();
-      const password = document.getElementById("emp-pass").value;
+      const rawPassword = document.getElementById("emp-pass").value;
 
       if (empId) {
         const idx = state.employees.findIndex(x => x.id === empId);
         if (idx !== -1) {
-          state.employees[idx] = { ...state.employees[idx], name, role, phone, email, password };
+          const finalPass = rawPassword.trim()
+            ? await formatSha256Password(rawPassword)
+            : state.employees[idx].password;
+
+          state.employees[idx] = { ...state.employees[idx], name, role, phone, email, password: finalPass };
           syncRecordToCloud("employees", state.employees[idx]);
         }
-        showToast("Data karyawan diperbarui.", "success");
+        showToast("Data karyawan diperbarui (SHA-256).", "success");
       } else {
-        const newEmp = { id: "emp_" + Date.now(), businessId: biz.id, name, role, phone, email, password, active: true };
+        const hashedPass = await formatSha256Password(rawPassword || "123");
+        const newEmp = { id: "emp_" + Date.now(), businessId: biz.id, name, role, phone, email, password: hashedPass, active: true };
         state.employees.push(newEmp);
         syncRecordToCloud("employees", newEmp);
-        showToast("Karyawan baru ditambahkan.", "success");
+        showToast("Karyawan baru ditambahkan (SHA-256).", "success");
       }
       closeModal();
       renderApp();
@@ -5150,7 +5242,7 @@ v2.6 — Pembaruan Terbaru
       renderApp();
     }
 
-    // 13. SUPER ADMIN PLATFORM SETTINGS (WITH FULL LANDING PAGE CUSTOMIZER)
+    // 13. SUPER ADMIN PLATFORM SETTINGS (WITH FULL LANDING PAGE CUSTOMIZER & SHA-256)
     function switchPlatformSettingsSection(sec) {
       state.uiFilters.platformSettingsSection = sec;
       renderApp();
@@ -5328,17 +5420,21 @@ v2.6 — Pembaruan Terbaru
               </div>
 
               <div class="border-t border-slate-100 pt-4 space-y-3">
-                <h2 class="text-sm font-bold text-slate-900">Kredensial Login Super Admin</h2>
+                <div class="flex items-center justify-between gap-2">
+                  <h2 class="text-sm font-bold text-slate-900">Kredensial Login Super Admin</h2>
+                  <span class="px-2.5 py-0.5 rounded-full brand-soft-bg text-[10px] font-mono font-bold">SHA-256 Protected</span>
+                </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label class="block text-slate-600 font-medium mb-1">Username / Email Super Admin</label>
                     <input id="sa-email" required value="${esc(pb.superAdminAuth.email)}" class="w-full px-3 py-2 rounded-xl" />
                   </div>
                   <div>
-                    <label class="block text-slate-600 font-medium mb-1">Password Super Admin</label>
-                    <input id="sa-pass" required value="${esc(pb.superAdminAuth.password)}" class="w-full px-3 py-2 rounded-xl" />
+                    <label class="block text-slate-600 font-medium mb-1">Password Baru Super Admin (Opsional)</label>
+                    <input id="sa-pass" type="password" placeholder="Kosongkan jika tidak ingin mengubah sandi" class="w-full px-3 py-2 rounded-xl" />
                   </div>
                 </div>
+                <p class="text-[11px] text-slate-500">Password dienkripsi satu arah menggunakan <b>SHA-256</b> sebelum disimpan ke browser & Firestore.</p>
               </div>
 
               <div class="flex justify-end pt-2">
@@ -5595,7 +5691,7 @@ v2.6 — Pembaruan Terbaru
       renderApp();
     }
 
-    function savePlatformGeneralSettings(e) {
+    async function savePlatformGeneralSettings(e) {
       e.preventDefault();
       const pb = state.platformBranding;
       pb.appName = document.getElementById("pb-appname").value.trim() || "SSmart Laundry";
@@ -5623,7 +5719,12 @@ v2.6 — Pembaruan Terbaru
       });
 
       pb.superAdminAuth.email = document.getElementById("sa-email").value.trim();
-      pb.superAdminAuth.password = document.getElementById("sa-pass").value;
+      const rawSaPass = document.getElementById("sa-pass").value;
+      if (rawSaPass.trim()) {
+        pb.superAdminAuth.password = await formatSha256Password(rawSaPass);
+      } else if (!isSha256Hash(pb.superAdminAuth.password)) {
+        pb.superAdminAuth.password = await formatSha256Password(pb.superAdminAuth.password);
+      }
 
       if (state.currentUser && state.currentUser.role === "SUPER_ADMIN") {
         state.currentUser.email = pb.superAdminAuth.email;
@@ -5631,7 +5732,7 @@ v2.6 — Pembaruan Terbaru
 
       applyThemeVariables();
       syncPlatformBrandingToCloud();
-      showToast("Pengaturan umum platform berhasil diperbarui!", "success");
+      showToast("Pengaturan umum & enkripsi SHA-256 berhasil diperbarui!", "success");
       renderApp({ forceShellRebuild: true });
     }
 
@@ -5776,7 +5877,7 @@ v2.6 — Pembaruan Terbaru
       const file = event.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         try {
           const data = JSON.parse(reader.result);
           if (data.backupScope !== "OWNER_TENANT" || !Array.isArray(data.businesses)) {
@@ -5793,6 +5894,7 @@ v2.6 — Pembaruan Terbaru
               data[col].forEach(item => syncRecordToCloud(col, item));
             }
           });
+          await migrateLegacyPlainPasswordsToSha256();
           showToast("Restore data usaha Owner berhasil!", "success");
           renderApp();
         } catch (err) {
@@ -5826,7 +5928,7 @@ v2.6 — Pembaruan Terbaru
       const file = event.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         try {
           const data = JSON.parse(reader.result);
           if (data.backupScope !== "FULL_PLATFORM") {
@@ -5844,6 +5946,7 @@ v2.6 — Pembaruan Terbaru
               data[col].forEach(rec => syncRecordToCloud(col, rec));
             }
           });
+          await migrateLegacyPlainPasswordsToSha256();
           showToast("Restore seluruh database platform berhasil!", "success");
           renderApp({ forceShellRebuild: true });
         } catch (err) {
@@ -6085,6 +6188,7 @@ v2.6 — Pembaruan Terbaru
 
     // --- BOOTSTRAP ---
     loadStateFromStorage();
+    await migrateLegacyPlainPasswordsToSha256();
     autoPurgeExpiredOwners(false);
     applyRouteFromUrl();
     window.addEventListener("hashchange", () => {
