@@ -224,11 +224,11 @@
           "Gunakan tombol perpanjangan paket saat masa aktif mendekati 7 hari terakhir."
         ],
         KASIR: [
-          "Buat order baru di Kasir Quick Order (bisa tambah pelanggan baru langsung) dan cetak atau share nota ke WA pelanggan.",
-          "Cari nota lewat Scan Barcode/QR dan catat pelunasan pembayaran pelanggan."
+          "Buat order baru di Kasir Quick Order (bisa tambah pelanggan baru langsung & tempel link shareloc WA untuk titik Google Maps) dan cetak atau share nota ke WA pelanggan.",
+          "Cari nota lewat Scan Barcode Balok dan catat pelunasan pembayaran pelanggan."
         ],
         OPERATOR: [
-          "Buka menu Order Laundry atau Scan Barcode/QR untuk memperbarui tahap proses cucian (Diterima, Dicuci, Dikeringkan, Disetrika, Siap Diambil, Selesai)."
+          "Buka menu Order Laundry atau Scan Barcode Balok untuk memperbarui tahap proses cucian (Diterima, Dicuci, Dikeringkan, Disetrika, Siap Diambil, Selesai) serta lihat titik Google Maps pelanggan saat antar."
         ]
       },
       mobileSidebarOpen: false,
@@ -261,6 +261,91 @@
     function formatRupiah(num) {
       const n = Number(num || 0);
       return "Rp " + n.toLocaleString("id-ID");
+    }
+
+    function parseGoogleMapsInput(rawInput, fallbackAddress = "") {
+      const text = String(rawInput || "").trim();
+      const addr = String(fallbackAddress || "").trim();
+      let lat = "";
+      let lng = "";
+      let mapsUrl = "";
+
+      if (text) {
+        const atMatch = text.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+        const qMatch = text.match(/[?&](?:q|ll|query|destination)=(-?\d+\.\d+)[,%2C]+(-?\d+\.\d+)/i);
+        const plainCoordMatch = text.match(/^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/);
+
+        if (atMatch) {
+          lat = atMatch[1];
+          lng = atMatch[2];
+        } else if (qMatch) {
+          lat = qMatch[1];
+          lng = qMatch[2];
+        } else if (plainCoordMatch) {
+          lat = plainCoordMatch[1];
+          lng = plainCoordMatch[2];
+        }
+
+        if (/^https?:\/\//i.test(text)) {
+          mapsUrl = text;
+        }
+      }
+
+      if (lat && lng) {
+        return {
+          lat,
+          lng,
+          mapsUrl: mapsUrl || `https://www.google.com/maps?q=${lat},${lng}`
+        };
+      }
+
+      if (mapsUrl) {
+        return { lat: "", lng: "", mapsUrl };
+      }
+
+      const querySource = text || addr;
+      return {
+        lat: "",
+        lng: "",
+        mapsUrl: querySource ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(querySource)}` : ""
+      };
+    }
+
+    function buildCustomerMapData(customerObj, orderObj = null) {
+      const lat = customerObj?.lat || orderObj?.customerLat || "";
+      const lng = customerObj?.lng || orderObj?.customerLng || "";
+      const address = customerObj?.address || orderObj?.customerAddress || "";
+      const storedUrl = customerObj?.mapsUrl || orderObj?.customerMapsUrl || "";
+
+      if (lat && lng) {
+        const coord = `${lat},${lng}`;
+        return {
+          hasLocation: true,
+          coordLabel: coord,
+          embedUrl: `https://maps.google.com/maps?q=${encodeURIComponent(coord)}&z=16&output=embed`,
+          externalUrl: storedUrl || `https://www.google.com/maps?q=${encodeURIComponent(coord)}`
+        };
+      }
+
+      if (address) {
+        return {
+          hasLocation: true,
+          coordLabel: address,
+          embedUrl: `https://maps.google.com/maps?q=${encodeURIComponent(address)}&z=15&output=embed`,
+          externalUrl: storedUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
+        };
+      }
+
+      if (storedUrl) {
+        return {
+          hasLocation: true,
+          coordLabel: "Tautan Google Maps",
+          embedUrl: "",
+          externalUrl: storedUrl
+        };
+      }
+
+      return { hasLocation: false, coordLabel: "", embedUrl: "", externalUrl: "" };
     }
 
     function getJakartaNow() {
@@ -521,8 +606,8 @@
           ? `<path fill="currentColor" d="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>`
           : `<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 7h6m-6 4h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
         scanner: isSolid
-          ? `<path fill="currentColor" d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 0h2v2h-2v-2zm4 0h2v2h-2v-2zm-4 4h2v2h-2v-2zm4 0h2v2h-2v-2z"/>`
-          : `<path d="M4 8V6a2 2 0 012-2h2M4 16v2a2 2 0 002 2h2m8-16h2a2 2 0 012 2v2m-4 12h2a2 2 0 002-2v-2M7 12h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+          ? `<path fill="currentColor" d="M2 6h2v12H2V6zm3 0h1v12H5V6zm2 0h2v12H7V6zm3 0h1v12h-1V6zm3 0h2v12h-2V6zm3 0h1v12h-1V6zm2 0h2v12h-2V6zm3 0h1v12h-1V6z"/>`
+          : `<path d="M3 7V5a1 1 0 011-1h2M3 17v2a1 1 0 001 1h2m12-16h2a1 1 0 011 1v2m-3 14h2a1 1 0 001-1v-2M6 8v8M9 8v8M12 8v8M15 8v8M18 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
         customers: isSolid
           ? `<path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/>`
           : `<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
@@ -564,7 +649,10 @@
           : `<path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
         close: isSolid
           ? `<path fill="currentColor" d="M6.4 5L5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6 6.4 5z"/>`
-          : `<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`
+          : `<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        mapPin: isSolid
+          ? `<path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/>`
+          : `<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="2" fill="none"/>`
       };
 
       return `<svg viewBox="0 0 24 24" class="${cls}" aria-hidden="true">${paths[name] || paths.dashboard}</svg>`;
@@ -652,9 +740,9 @@
       ];
 
       state.customers = [
-        { id: "cust_01", businessId: "biz_ssmart_01", name: "Andi Pratama", phone: "081290001111", address: "Jl. Melati No. 8" },
-        { id: "cust_02", businessId: "biz_ssmart_01", name: "Nadia Putri", phone: "081290002222", address: "Jl. Kenanga No. 19" },
-        { id: "cust_03", businessId: "biz_ssmart_02", name: "Reza Wijaya", phone: "081290003333", address: "Jl. Kemang Timur No. 5" }
+        { id: "cust_01", businessId: "biz_ssmart_01", name: "Andi Pratama", phone: "081290001111", address: "Jl. Melati No. 8, Kebayoran Baru, Jakarta Selatan", lat: "-6.2442", lng: "106.7981", mapsUrl: "https://www.google.com/maps?q=-6.2442,106.7981" },
+        { id: "cust_02", businessId: "biz_ssmart_01", name: "Nadia Putri", phone: "081290002222", address: "Jl. Kenanga No. 19, Jakarta Selatan", lat: "-6.2515", lng: "106.8054", mapsUrl: "https://www.google.com/maps?q=-6.2515,106.8054" },
+        { id: "cust_03", businessId: "biz_ssmart_02", name: "Reza Wijaya", phone: "081290003333", address: "Jl. Kemang Timur No. 5, Jakarta Selatan", lat: "-6.2651", lng: "106.8172", mapsUrl: "https://www.google.com/maps?q=-6.2651,106.8172" }
       ];
 
       state.orders = [
@@ -665,6 +753,10 @@
           customerId: "cust_01",
           customerName: "Andi Pratama",
           customerPhone: "081290001111",
+          customerAddress: "Jl. Melati No. 8, Kebayoran Baru, Jakarta Selatan",
+          customerLat: "-6.2442",
+          customerLng: "106.7981",
+          customerMapsUrl: "https://www.google.com/maps?q=-6.2442,106.7981",
           items: [{ serviceId: "srv_01", name: "Cuci Komplit Reguler", qty: 4, unit: "kg", price: 8000, subtotal: 32000 }],
           totalAmount: 32000,
           paidAmount: 32000,
@@ -682,6 +774,10 @@
           customerId: "cust_02",
           customerName: "Nadia Putri",
           customerPhone: "081290002222",
+          customerAddress: "Jl. Kenanga No. 19, Jakarta Selatan",
+          customerLat: "-6.2515",
+          customerLng: "106.8054",
+          customerMapsUrl: "https://www.google.com/maps?q=-6.2515,106.8054",
           items: [{ serviceId: "srv_03", name: "Bed Cover Double", qty: 1, unit: "pcs", price: 35000, subtotal: 35000 }],
           totalAmount: 35000,
           paidAmount: 15000,
@@ -699,6 +795,10 @@
           customerId: "cust_01",
           customerName: "Andi Pratama",
           customerPhone: "081290001111",
+          customerAddress: "Jl. Melati No. 8, Kebayoran Baru, Jakarta Selatan",
+          customerLat: "-6.2442",
+          customerLng: "106.7981",
+          customerMapsUrl: "https://www.google.com/maps?q=-6.2442,106.7981",
           items: [{ serviceId: "srv_02", name: "Cuci Lipat Express", qty: 3, unit: "kg", price: 12000, subtotal: 36000 }],
           totalAmount: 36000,
           paidAmount: 36000,
@@ -1018,13 +1118,7 @@
           state.publicTrackQuery = eqIdx >= 0 ? decodeURIComponent(rawHash.slice(eqIdx + 1)).trim().toUpperCase() : "";
           return;
         }
-        if (rawHash === "login") {
-          if (!state.isAuthenticated) {
-            state.publicPortalMode = false;
-          }
-          return;
-        }
-        if (state.isAuthenticated && rawHash && canAccess(rawHash)) {
+        if (rawHash && rawHash !== "login" && state.isAuthenticated && canAccess(rawHash)) {
           state.publicPortalMode = false;
           state.activeTab = rawHash;
         }
@@ -1035,30 +1129,24 @@
       const role = state.currentUser?.role;
       if (!role || role === "SUPER_ADMIN") return "";
       const biz = getCurrentBusiness();
-      const ownerRec = state.owners.find(o => o.businessId === biz.id);
-      const expDate = (ownerRec && ownerRec.expiresAt) || biz.expiresAt;
-      const daysLeft = getRemainingDays(expDate);
+      const daysLeft = getRemainingDays(biz.expiresAt);
       if (daysLeft > 7) return "";
 
-      const canRenew = role === "OWNER" || role === "ADMIN";
-      const msg = daysLeft < 0
-        ? `Masa aktif paket ${escapeHtml(biz.name)} telah berakhir ${Math.abs(daysLeft)} hari lalu (${escapeHtml(expDate)}).`
-        : `Masa aktif paket ${escapeHtml(biz.name)} akan berakhir dalam ${daysLeft} hari (${escapeHtml(expDate)}).`;
-
       return `
-        <div class="mb-4 p-4 rounded-2xl border ${daysLeft <= 2 ? "bg-rose-50 border-rose-200 text-rose-900" : "bg-amber-50 border-amber-200 text-amber-900"} flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
-          <div>
-            <div class="text-xs font-extrabold uppercase tracking-wider">Peringatan Masa Aktif Paket</div>
-            <div class="text-sm font-semibold mt-0.5">${msg}</div>
+        <div class="p-4 rounded-2xl border ${daysLeft <= 0 ? "bg-rose-50 border-rose-200 text-rose-900" : "bg-amber-50 border-amber-200 text-amber-900"} flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="text-xs">
+            <div class="font-bold">
+              ${daysLeft <= 0
+                ? `Masa aktif paket ${escapeHtml(biz.name)} telah berakhir (${escapeHtml(biz.expiresAt || "-")}).`
+                : `Masa aktif paket ${escapeHtml(biz.name)} tersisa ${daysLeft} hari (berakhir ${escapeHtml(biz.expiresAt)}).`
+              }
+            </div>
+            <div class="opacity-80 mt-0.5">Segera perpanjang paket agar layanan kasir dan operasional tetap aktif tanpa gangguan.</div>
           </div>
-          ${canRenew ? `
-            <button type="button" onclick="window.appActions.openPlanRenewalModal()"
-              class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold shrink-0">
-              Perpanjang / Pilih Paket Baru
-            </button>
-          ` : `
-            <span class="text-xs font-bold px-3 py-1.5 rounded-xl bg-white/80">Hubungi Owner / Admin</span>
-          `}
+          <button type="button" onclick="window.appActions.openPlanRenewalModal()"
+            class="px-3.5 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold shrink-0">
+            Perpanjang Paket
+          </button>
         </div>
       `;
     }
@@ -1068,14 +1156,17 @@
       const q = (state.publicTrackQuery || "").trim().toUpperCase();
       const matched = q ? state.orders.find(o => String(o.invoiceNumber || "").toUpperCase() === q) : null;
       const biz = matched ? (state.businesses.find(b => b.id === matched.businessId) || getCurrentBusiness()) : getCurrentBusiness();
-      const stInfo = matched ? (state.statusSettings[matched.status] || { label: matched.status, badgeClass: "bg-slate-100 text-slate-800" }) : null;
+      const stInfo = matched ? (state.statusSettings[normalizeOrderStatus(matched.status)] || { label: matched.status, badgeClass: "bg-slate-100 text-slate-800" }) : null;
 
       return `
         <div class="min-h-screen p-4 sm:p-6 flex flex-col justify-between" style="background-color: var(--app-bg);">
-          <div class="max-w-xl w-full mx-auto space-y-5 py-4 animate-page">
+          <div class="max-w-xl w-full mx-auto space-y-5 animate-page">
             <div class="flex items-center justify-between gap-3">
               <div class="flex items-center gap-2.5">
-                ${(biz.logoUrl || pb.logoUrl) ? `<img src="${escapeHtml(biz.logoUrl || pb.logoUrl)}" alt="Logo" class="w-9 h-9 rounded-xl object-contain bg-white border border-slate-200 p-1" />` : `<div class="w-9 h-9 rounded-xl theme-primary-bg text-white flex items-center justify-center font-extrabold text-sm">SL</div>`}
+                ${(biz.logoUrl || pb.logoUrl)
+                  ? `<img src="${escapeHtml(biz.logoUrl || pb.logoUrl)}" alt="Logo" class="w-10 h-10 rounded-xl object-contain border border-slate-200 p-1 bg-white" />`
+                  : `<div class="w-10 h-10 rounded-xl theme-primary-bg text-white flex items-center justify-center font-extrabold text-sm">SL</div>`
+                }
                 <div>
                   <div class="font-extrabold text-slate-900 text-sm">${escapeHtml(biz.name || pb.platformName)}</div>
                   <div class="text-[11px] text-slate-500">Portal Pelacakan Cucian Publik</div>
@@ -1096,6 +1187,7 @@
               <div class="flex gap-2">
                 <input type="text" id="public-track-input" value="${escapeHtml(state.publicTrackQuery)}"
                   placeholder="Contoh: SS-261126-0001"
+                  onkeydown="if(event.key==='Enter') window.appActions.searchPublicInvoice()"
                   class="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm font-mono uppercase focus:outline-none focus:border-blue-500" />
                 <button type="button" onclick="window.appActions.searchPublicInvoice()"
                   class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-bold">
@@ -1423,6 +1515,8 @@
       const biz = getCurrentBusiness();
       const services = getScopedServices();
       const customers = getScopedCustomers();
+      const selectedCust = customers.find(c => c.id === state.quickCustomerId);
+      const selectedMap = selectedCust ? buildCustomerMapData(selectedCust) : { hasLocation: false };
       const subtotal = state.quickCart.reduce((s, item) => s + Number(item.subtotal || 0), 0);
       const paidNow = Math.min(subtotal, Math.max(0, Number(state.quickPaidAmount || 0)));
       const payAccounts = Array.isArray(biz.paymentAccounts) && biz.paymentAccounts.length
@@ -1438,21 +1532,27 @@
           <div class="flex items-center justify-between">
             <div>
               <h1 class="text-xl font-bold app-text-main">Kasir Quick Order</h1>
-              <p class="text-xs app-text-muted">Buat transaksi laundry dan nota pelanggan</p>
+              <p class="text-xs app-text-muted">Buat transaksi laundry multi-layanan dan nota pelanggan</p>
             </div>
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div class="lg:col-span-2 surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
-              <div class="font-semibold text-sm app-text-main">Pilih Layanan</div>
+              <div class="font-semibold text-sm app-text-main">Pilih Layanan (Bisa Lebih dari Satu)</div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                ${services.map(srv => `
-                  <button type="button" onclick="window.appActions.addToQuickCart('${escapeHtml(srv.id)}')"
-                    class="p-4 rounded-2xl border border-slate-200 hover:border-blue-500 text-left transition bg-white">
-                    <div class="font-semibold text-sm text-slate-900">${escapeHtml(srv.name)}</div>
-                    <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(srv.category)} • ${formatRupiah(srv.price)} / ${escapeHtml(srv.unit)}</div>
-                  </button>
-                `).join("")}
+                ${services.map(srv => {
+                  const inCart = state.quickCart.find(i => i.serviceId === srv.id);
+                  return `
+                    <button type="button" onclick="window.appActions.addToQuickCart('${escapeHtml(srv.id)}')"
+                      class="p-4 rounded-2xl border ${inCart ? "border-blue-500 bg-blue-50/40" : "border-slate-200 hover:border-blue-500 bg-white"} text-left transition flex items-start justify-between gap-2">
+                      <div>
+                        <div class="font-semibold text-sm text-slate-900">${escapeHtml(srv.name)}</div>
+                        <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(srv.category)} • ${formatRupiah(srv.price)} / ${escapeHtml(srv.unit)}</div>
+                      </div>
+                      ${inCart ? `<span class="px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold shrink-0">${inCart.qty} ${escapeHtml(inCart.unit)}</span>` : ""}
+                    </button>
+                  `;
+                }).join("")}
               </div>
             </div>
 
@@ -1462,7 +1562,7 @@
               <div>
                 <div class="flex items-center justify-between mb-1">
                   <label class="text-xs font-semibold text-slate-700">Pelanggan</label>
-                  <button type="button" onclick="window.appActions.openAddCustomerModal(true)"
+                  <button type="button" onclick="window.appActions.openCustomerFormModal(null, true)"
                     class="text-[11px] font-semibold theme-primary-text hover:underline inline-flex items-center gap-1">
                     ${renderIcon("plus", "w-3.5 h-3.5")}
                     <span>Pelanggan Baru</span>
@@ -1472,34 +1572,96 @@
                   id: "pos-customer-dd",
                   value: state.quickCustomerId,
                   placeholder: "Pilih Pelanggan...",
-                  options: customers.map(c => ({ value: c.id, label: c.name, sub: c.phone })),
+                  options: customers.map(c => ({ value: c.id, label: c.name, sub: `${c.phone}${c.address ? " • " + c.address : ""}` })),
                   onSelectFn: "setQuickCustomer"
                 })}
+                ${selectedCust ? `
+                  <div class="mt-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-2 text-[11px]">
+                    <div class="min-w-0">
+                      <div class="text-slate-600 truncate">${escapeHtml(selectedCust.address || "Alamat belum diisi")}</div>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                      ${selectedMap.hasLocation ? `
+                        <a href="${escapeHtml(selectedMap.externalUrl)}" target="_blank" rel="noopener noreferrer"
+                          class="px-2 py-1 rounded-lg bg-blue-50 text-blue-700 font-semibold hover:bg-blue-100">
+                          Maps
+                        </a>
+                      ` : ""}
+                      <button type="button" onclick="window.appActions.openCustomerFormModal('${escapeHtml(selectedCust.id)}', true)"
+                        class="px-2 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 font-semibold">
+                        Pin Lokasi
+                      </button>
+                    </div>
+                  </div>
+                ` : ""}
               </div>
 
-              <div class="space-y-2 max-h-52 overflow-y-auto">
+              <div class="space-y-2.5 max-h-72 overflow-y-auto">
                 ${state.quickCart.length === 0
-                  ? `<div class="text-xs text-slate-400 py-4 text-center">Belum ada item dipilih</div>`
-                  : state.quickCart.map((item, idx) => `
-                    <div class="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between gap-2 text-xs">
-                      <div>
-                        <div class="font-semibold text-slate-800">${escapeHtml(item.name)}</div>
-                        <div class="text-slate-500">${item.qty} ${escapeHtml(item.unit)} × ${formatRupiah(item.price)}</div>
-                      </div>
-                      <div class="flex items-center gap-1.5">
-                        <span class="font-semibold text-slate-900">${formatRupiah(item.subtotal)}</span>
-                        <button type="button" onclick="window.appActions.removeCartItem(${idx})" class="px-2 py-1 rounded-lg bg-rose-50 text-rose-600 font-bold">×</button>
-                      </div>
-                    </div>
-                  `).join("")
+                  ? `<div class="text-xs text-slate-400 py-4 text-center">Belum ada layanan dipilih. Klik layanan di samping untuk menambahkan.</div>`
+                  : state.quickCart.map((item, idx) => {
+                      const rawUnit = String(item.unit || "kg").trim();
+                      const uLow = rawUnit.toLowerCase();
+                      const unitLabel = uLow === "kg"
+                        ? "Berat (kg)"
+                        : uLow === "pcs"
+                          ? "Jumlah (pcs)"
+                          : uLow === "pasang"
+                            ? "Jumlah (pasang)"
+                            : `Jumlah (${rawUnit})`;
+                      const stepVal = uLow === "kg" ? "0.1" : "1";
+                      return `
+                        <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2 text-xs">
+                          <div class="flex items-start justify-between gap-2">
+                            <div class="min-w-0">
+                              <div class="font-bold text-slate-900 truncate">${escapeHtml(item.name)}</div>
+                              <div class="text-[11px] text-slate-500">Tarif: ${formatRupiah(item.price)} / ${escapeHtml(rawUnit)}</div>
+                            </div>
+                            <button type="button" onclick="window.appActions.removeCartItem(${idx})" title="Hapus layanan"
+                              class="px-2 py-0.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold shrink-0">×</button>
+                          </div>
+
+                          <div class="flex items-center justify-between gap-2 pt-1">
+                            <label class="text-[11px] font-semibold text-slate-700 shrink-0">${escapeHtml(unitLabel)}:</label>
+                            <div class="flex items-center gap-1.5">
+                              <input type="number" step="${stepVal}" min="${stepVal}" value="${item.qty}"
+                                oninput="window.appActions.updateCartItemQty(${idx}, this.value)"
+                                class="w-24 px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-right font-bold text-slate-900 focus:outline-none focus:border-blue-500" />
+                              <span class="text-[11px] font-semibold text-slate-500 w-11">${escapeHtml(rawUnit)}</span>
+                            </div>
+                          </div>
+
+                          <div class="pt-1.5 border-t border-slate-200/70 flex items-center justify-between text-[11px]">
+                            <span class="text-slate-500">${item.qty} ${escapeHtml(rawUnit)} × ${formatRupiah(item.price)}</span>
+                            <span class="font-bold text-slate-900">${formatRupiah(item.subtotal)}</span>
+                          </div>
+                        </div>
+                      `;
+                    }).join("")
                 }
               </div>
 
               <div class="border-t border-slate-100 pt-3 space-y-2.5 text-xs">
-                <div class="flex justify-between font-bold text-slate-900 text-sm">
-                  <span>Total Tagihan</span>
-                  <span>${formatRupiah(subtotal)}</span>
-                </div>
+                ${state.quickCart.length > 0 ? `
+                  <div class="p-3 rounded-xl bg-blue-50/60 border border-blue-100 space-y-1.5">
+                    <div class="text-[11px] font-bold text-blue-900">Rincian Biaya Layanan</div>
+                    ${state.quickCart.map(item => `
+                      <div class="flex items-center justify-between gap-2 text-[11px] text-slate-700">
+                        <span class="truncate">${escapeHtml(item.name)} (${item.qty} ${escapeHtml(item.unit)} × ${formatRupiah(item.price)})</span>
+                        <span class="font-semibold shrink-0">${formatRupiah(item.subtotal)}</span>
+                      </div>
+                    `).join("")}
+                    <div class="pt-1.5 border-t border-blue-200/80 flex justify-between font-bold text-slate-900 text-sm">
+                      <span>Total Biaya</span>
+                      <span class="theme-primary-text">${formatRupiah(subtotal)}</span>
+                    </div>
+                  </div>
+                ` : `
+                  <div class="flex justify-between font-bold text-slate-900 text-sm">
+                    <span>Total Tagihan</span>
+                    <span>${formatRupiah(subtotal)}</span>
+                  </div>
+                `}
                 <div>
                   <label class="block font-semibold text-slate-700 mb-1">Pembayaran Awal (Rp)</label>
                   <input type="number" id="pos-paid-input" value="${paidNow}" oninput="window.appActions.setQuickPaid(this.value)"
@@ -1555,6 +1717,8 @@
       });
 
       const focused = state.selectedOrderId ? allScoped.find(o => o.id === state.selectedOrderId) : null;
+      const focusedCust = focused ? state.customers.find(c => c.id === focused.customerId) : null;
+      const focusedMap = focused ? buildCustomerMapData(focusedCust, focused) : { hasLocation: false };
 
       return `
         <div class="space-y-5 animate-page">
@@ -1598,9 +1762,31 @@
               </div>
               <div class="text-xs text-slate-600 space-y-1">
                 <div>Telepon: <strong>${escapeHtml(focused.customerPhone || "-")}</strong> • Masuk: <strong>${escapeHtml(focused.createdAt)}</strong></div>
+                <div>Alamat Antar: <strong>${escapeHtml(focusedCust?.address || focused.customerAddress || "-")}</strong></div>
                 <div>Total: <strong>${formatRupiah(focused.totalAmount)}</strong> • Terbayar: <strong>${formatRupiah(focused.paidAmount)}</strong> (${escapeHtml(focused.paymentStatus)})</div>
                 ${focused.notes ? `<div>Catatan: <strong>${escapeHtml(focused.notes)}</strong></div>` : ""}
               </div>
+
+              ${focusedMap.hasLocation ? `
+                <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                      ${renderIcon("mapPin", "w-4 h-4")}
+                      <span>Titik Lokasi Google Maps Pelanggan</span>
+                    </div>
+                    <a href="${escapeHtml(focusedMap.externalUrl)}" target="_blank" rel="noopener noreferrer"
+                      class="px-3 py-1.5 rounded-xl theme-primary-bg text-white text-[11px] font-bold inline-flex items-center gap-1 shadow-sm">
+                      <span>Perluas ke Google Maps ↗</span>
+                    </a>
+                  </div>
+                  ${focusedMap.embedUrl ? `
+                    <div class="rounded-xl overflow-hidden border border-slate-200 bg-white">
+                      <iframe src="${escapeHtml(focusedMap.embedUrl)}" class="w-full h-44 border-0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                    </div>
+                  ` : ""}
+                </div>
+              ` : ""}
+
               <div class="border-t border-slate-100 pt-3 space-y-1">
                 ${(focused.items || []).map(it => `
                   <div class="flex justify-between text-xs text-slate-700">
@@ -1644,19 +1830,30 @@
               ${list.map(o => {
                 const normSt = normalizeOrderStatus(o.status);
                 const stInfo = state.statusSettings[normSt] || { label: o.status, badgeClass: "bg-slate-100 text-slate-700" };
+                const oCust = state.customers.find(c => c.id === o.customerId);
+                const oMap = buildCustomerMapData(oCust, o);
                 return `
                   <div class="surface-card p-4 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-3">
-                    <div>
+                    <div class="min-w-0">
                       <div class="flex items-center gap-2">
                         <span class="text-xs font-mono font-semibold text-slate-500">${escapeHtml(o.invoiceNumber)}</span>
                         <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${stInfo.badgeClass}">${escapeHtml(stInfo.label)}</span>
                       </div>
-                      <div class="text-sm font-bold text-slate-900 mt-0.5">${escapeHtml(o.customerName)}</div>
+                      <div class="text-sm font-bold text-slate-900 mt-0.5 truncate">${escapeHtml(o.customerName)}</div>
+                      ${oMap.hasLocation ? `<div class="text-[11px] text-slate-500 truncate mt-0.5">${escapeHtml(oCust?.address || o.customerAddress || "Titik Maps tersimpan")}</div>` : ""}
                     </div>
-                    <button type="button" onclick="window.appActions.selectOrderDetail('${escapeHtml(o.id)}')"
-                      class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold">
-                      Detail
-                    </button>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                      ${oMap.hasLocation ? `
+                        <a href="${escapeHtml(oMap.externalUrl)}" target="_blank" rel="noopener noreferrer" title="Perluas ke Google Maps"
+                          class="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold">
+                          Maps ↗
+                        </a>
+                      ` : ""}
+                      <button type="button" onclick="window.appActions.selectOrderDetail('${escapeHtml(o.id)}')"
+                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold">
+                        Detail
+                      </button>
+                    </div>
                   </div>
                 `;
               }).join("")}
@@ -1671,13 +1868,14 @@
         <div class="space-y-6 animate-page">
           ${renderExpiryBannerIfNeeded()}
           <div>
-            <h1 class="text-xl font-extrabold text-slate-900">Scan Barcode / QR Code</h1>
-            <p class="text-xs text-slate-500">Pindai kode QR pada nota pelanggan atau masukkan nomor invoice secara manual</p>
+            <h1 class="text-xl font-extrabold text-slate-900">Scan Barcode Balok</h1>
+            <p class="text-xs text-slate-500">Arahkan kamera ke barcode balok (Code 128) pada bagian bawah nota pelanggan</p>
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
               <div id="qr-reader" class="w-full rounded-2xl overflow-hidden bg-slate-100 min-h-[240px]"></div>
+              <div class="text-[11px] text-slate-500">Posisikan garis-garis barcode balok sejajar di dalam kotak pemindai horizontal.</div>
               <div class="flex gap-2">
                 <button type="button" onclick="window.appActions.startQrScanner()"
                   class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold">
@@ -1709,7 +1907,7 @@
     function renderCustomersView() {
       const list = getScopedCustomers().filter(c => {
         const q = (state.searchCustomer || "").trim().toLowerCase();
-        return !q || String(c.name).toLowerCase().includes(q) || String(c.phone).toLowerCase().includes(q);
+        return !q || String(c.name).toLowerCase().includes(q) || String(c.phone).toLowerCase().includes(q) || String(c.address || "").toLowerCase().includes(q);
       });
 
       return `
@@ -1717,26 +1915,63 @@
           ${renderExpiryBannerIfNeeded()}
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h1 class="text-xl font-extrabold text-slate-900">Pelanggan</h1>
-              <p class="text-xs text-slate-500">Data pelanggan cabang aktif</p>
+              <h1 class="text-xl font-extrabold text-slate-900">Pelanggan & Lokasi Pengantaran</h1>
+              <p class="text-xs text-slate-500">Lihat titik Google Maps pelanggan dan perluas untuk navigasi antar-jemput</p>
             </div>
             <div class="flex gap-2">
               <input type="text" value="${escapeHtml(state.searchCustomer)}" oninput="window.appActions.setCustomerSearch(this.value)"
-                placeholder="Cari pelanggan..." class="px-3.5 py-2 rounded-xl border border-slate-200 text-xs bg-white" />
-              <button type="button" onclick="window.appActions.openAddCustomerModal()"
-                class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold">
+                placeholder="Cari pelanggan / alamat..." class="px-3.5 py-2 rounded-xl border border-slate-200 text-xs bg-white" />
+              <button type="button" onclick="window.appActions.openCustomerFormModal(null, false)"
+                class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold shrink-0">
                 + Pelanggan
               </button>
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            ${list.map(c => `
-              <div class="surface-card p-4 rounded-2xl border border-slate-200/80">
-                <div class="font-bold text-sm text-slate-900">${escapeHtml(c.name)}</div>
-                <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(c.phone)} • ${escapeHtml(c.address || "-")}</div>
-              </div>
-            `).join("")}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${list.map(c => {
+              const mapInfo = buildCustomerMapData(c);
+              return `
+                <div class="surface-card p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <div class="font-bold text-sm text-slate-900">${escapeHtml(c.name)}</div>
+                      <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(c.phone)}</div>
+                      <div class="text-xs text-slate-600 mt-1">${escapeHtml(c.address || "Alamat belum diisi")}</div>
+                    </div>
+                    <button type="button" onclick="window.appActions.openCustomerFormModal('${escapeHtml(c.id)}', false)"
+                      class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold shrink-0">
+                      Edit / Pin
+                    </button>
+                  </div>
+
+                  ${mapInfo.hasLocation ? `
+                    <div class="space-y-2 pt-2 border-t border-slate-100">
+                      ${mapInfo.embedUrl ? `
+                        <div class="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                          <iframe src="${escapeHtml(mapInfo.embedUrl)}" class="w-full h-36 border-0" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                        </div>
+                      ` : ""}
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-[11px] text-slate-500 truncate">${escapeHtml(mapInfo.coordLabel)}</span>
+                        <a href="${escapeHtml(mapInfo.externalUrl)}" target="_blank" rel="noopener noreferrer"
+                          class="px-3 py-1.5 rounded-xl theme-primary-bg text-white text-xs font-bold inline-flex items-center gap-1 shrink-0">
+                          <span>Perluas ke Google Maps ↗</span>
+                        </a>
+                      </div>
+                    </div>
+                  ` : `
+                    <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                      <span>Titik Google Maps belum diatur</span>
+                      <button type="button" onclick="window.appActions.openCustomerFormModal('${escapeHtml(c.id)}', false)"
+                        class="font-semibold theme-primary-text hover:underline">
+                        + Tambah Titik Maps
+                      </button>
+                    </div>
+                  `}
+                </div>
+              `;
+            }).join("")}
           </div>
         </div>
       `;
@@ -1889,157 +2124,168 @@
 
     function renderServicesView() {
       const services = getScopedServices();
+      const canManage = state.currentUser?.role === "ADMIN" || state.currentUser?.role === "OWNER";
       return `
         <div class="space-y-6 animate-page">
           ${renderExpiryBannerIfNeeded()}
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between gap-3">
             <div>
               <h1 class="text-xl font-extrabold text-slate-900">Layanan & Tarif</h1>
               <p class="text-xs text-slate-500">Daftar paket cuci kiloan & satuan cabang aktif</p>
             </div>
-            <button type="button" onclick="window.appActions.openAddServiceModal()"
-              class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold">
-              + Layanan
-            </button>
+            ${canManage ? `
+              <button type="button" onclick="window.appActions.openServiceFormModal(null)"
+                class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold inline-flex items-center gap-1.5">
+                ${renderIcon("plus", "w-4 h-4", true)}
+                <span>Tambah Layanan</span>
+              </button>
+            ` : ""}
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            ${services.map(s => `
-              <div class="surface-card p-4 rounded-2xl border border-slate-200/80 flex items-center justify-between">
-                <div>
-                  <div class="font-bold text-sm text-slate-900">${escapeHtml(s.name)}</div>
-                  <div class="text-xs text-slate-500">${escapeHtml(s.category)} • Estimasi ${s.etaHours} jam</div>
+          ${services.length === 0 ? `
+            <div class="surface-card p-8 rounded-2xl border border-slate-200/80 text-center text-xs app-text-muted">
+              Belum ada layanan & tarif terdaftar pada cabang ini.
+            </div>
+          ` : `
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              ${services.map(s => `
+                <div class="surface-card p-4 rounded-2xl border border-slate-200/80 flex flex-col justify-between gap-3">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <div class="font-bold text-sm text-slate-900">${escapeHtml(s.name)}</div>
+                      <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(s.category)} • Estimasi ${s.etaHours} jam</div>
+                    </div>
+                    <div class="text-sm font-extrabold theme-primary-text shrink-0">${formatRupiah(s.price)} / ${escapeHtml(s.unit)}</div>
+                  </div>
+                  ${canManage ? `
+                    <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <button type="button" onclick="window.appActions.openServiceFormModal('${escapeHtml(s.id)}')"
+                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold">
+                        Edit
+                      </button>
+                      <button type="button" onclick="window.appActions.deleteService('${escapeHtml(s.id)}')"
+                        class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold">
+                        Hapus
+                      </button>
+                    </div>
+                  ` : ""}
                 </div>
-                <div class="text-sm font-extrabold theme-primary-text">${formatRupiah(s.price)} / ${escapeHtml(s.unit)}</div>
-              </div>
-            `).join("")}
-          </div>
+              `).join("")}
+            </div>
+          `}
         </div>
       `;
     }
 
     function renderEmployeesView() {
       if (state.currentUser?.role !== "OWNER") {
-        return `<div class="p-6 rounded-2xl bg-rose-50 text-rose-700 text-sm font-bold">Hanya role Owner yang dapat mengelola Admin, Kasir, dan Operator di bawah naungannya.</div>`;
+        return `<div class="p-6 rounded-2xl bg-rose-50 text-rose-700 text-sm font-bold">Akses khusus Owner.</div>`;
       }
-      const list = getScopedEmployees();
-      const ownedBranches = getOwnerBusinesses(state.currentUser.id);
-      const maxBranches = getOwnerBranchQuota(state.currentUser.id);
-      const remainingBranchSlots = Math.max(0, maxBranches - ownedBranches.length);
-      const adminCount = list.filter(e => e.role === "ADMIN").length;
-      const staffCount = list.filter(e => e.role !== "ADMIN").length;
+      const ownerId = state.currentUser.id;
+      const ownedBranches = getOwnerBusinesses(ownerId);
+      const maxBranches = getOwnerBranchQuota(ownerId);
+      const employees = getScopedEmployees();
+      const canAddBranch = ownedBranches.length < maxBranches;
 
       return `
-        <div class="space-y-6 animate-page">
+        <div class="space-y-5 animate-page">
           ${renderExpiryBannerIfNeeded()}
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h1 class="text-xl font-bold app-text-main">Cabang, Admin & Karyawan</h1>
-              <p class="text-xs app-text-muted">Kuota Paket Owner: ${ownedBranches.length} dari ${maxBranches} cabang aktif (${adminCount} Admin, ${staffCount} Staf)</p>
+              <h1 class="text-xl font-extrabold text-slate-900">Cabang, Admin & Karyawan</h1>
+              <p class="text-xs text-slate-500">Kuota cabang paket Anda: <strong>${ownedBranches.length} / ${maxBranches} cabang</strong></p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              ${remainingBranchSlots > 0 ? `
+              ${canAddBranch ? `
                 <button type="button" onclick="window.appActions.openNewBranchAdminModal()"
-                  class="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold inline-flex items-center gap-2">
+                  class="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold inline-flex items-center gap-1.5">
                   ${renderIcon("plus", "w-4 h-4", true)}
-                  <span>Daftarkan Cabang & Admin (${remainingBranchSlots} Slot)</span>
+                  <span>Daftarkan Cabang & Admin</span>
                 </button>
               ` : `
                 <button type="button" onclick="window.appActions.openBuyBranchPackageModal()"
-                  class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold inline-flex items-center gap-2">
-                  ${renderIcon("saas", "w-4 h-4", true)}
-                  <span>Beli Paket Cabang & Admin Baru</span>
+                  class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold">
+                  Beli Paket Cabang & Admin Baru
                 </button>
               `}
               <button type="button" onclick="window.appActions.openEmployeeFormModal(null)"
-                class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold inline-flex items-center gap-2">
+                class="px-3.5 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold inline-flex items-center gap-1.5">
                 ${renderIcon("plus", "w-4 h-4", true)}
-                <span>Tambah Staf / Admin</span>
+                <span>Tambah Staf</span>
               </button>
             </div>
           </div>
 
-          <div class="surface-card rounded-2xl border border-slate-200/80 p-4 space-y-3">
-            <div class="flex items-center justify-between">
-              <div class="font-semibold text-xs text-slate-800 uppercase tracking-wider">Daftar Cabang Milik Owner (${ownedBranches.length}/${maxBranches})</div>
-              ${remainingBranchSlots === 0 ? `<span class="text-[11px] font-semibold text-amber-700">Slot cabang penuh — beli paket ke Super Admin untuk menambah cabang & Admin baru</span>` : ""}
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="surface-card rounded-2xl border border-slate-200/80 p-4 space-y-2.5">
+            <div class="text-xs font-bold text-slate-800">Daftar Cabang Terdaftar (${ownedBranches.length}/${maxBranches})</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
               ${ownedBranches.map(b => {
-                const branchAdmins = list.filter(e => e.businessId === b.id && e.role === "ADMIN");
-                const isSelected = getCurrentBusiness().id === b.id;
+                const isCurrent = b.id === getCurrentBusiness().id;
+                const branchAdmin = employees.find(e => e.businessId === b.id && e.role === "ADMIN");
                 return `
-                  <div class="p-3.5 rounded-xl border ${isSelected ? "border-blue-500 bg-blue-50/40" : "border-slate-200 bg-slate-50/50"} flex items-center justify-between gap-3">
+                  <div class="p-3.5 rounded-xl border ${isCurrent ? "border-blue-500 bg-blue-50/40" : "border-slate-200 bg-slate-50/60"} flex items-center justify-between gap-2">
                     <div class="min-w-0">
-                      <div class="flex items-center gap-2">
-                        <span class="font-bold text-xs text-slate-900 truncate">${escapeHtml(b.name)}</span>
-                        ${isSelected ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">Aktif</span>` : ""}
-                      </div>
-                      <div class="text-[11px] text-slate-500 mt-0.5 truncate">
-                        Admin: ${branchAdmins.length ? escapeHtml(branchAdmins.map(a => a.name).join(", ")) : "Belum ada Admin"}
-                      </div>
+                      <div class="font-bold text-xs text-slate-900 truncate">${escapeHtml(b.name)}</div>
+                      <div class="text-[11px] text-slate-500 truncate">Admin: ${branchAdmin ? escapeHtml(branchAdmin.name) : "Belum ada Admin"}</div>
                     </div>
-                    ${!isSelected ? `
-                      <button type="button" onclick="window.appActions.switchOwnerBranch('${escapeHtml(b.id)}')"
-                        class="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 shrink-0">
-                        Kelola
-                      </button>
-                    ` : ""}
+                    ${isCurrent
+                      ? `<span class="px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold shrink-0">Cabang Aktif</span>`
+                      : `<button type="button" onclick="window.appActions.switchOwnerBranch('${escapeHtml(b.id)}')" class="px-2.5 py-1 rounded-xl bg-white border border-slate-200 text-[11px] font-semibold text-slate-700 shrink-0">Pilih</button>`
+                    }
                   </div>
                 `;
               }).join("")}
             </div>
           </div>
 
-          ${list.length === 0 ? `
-            <div class="surface-card p-8 rounded-2xl border border-slate-200/80 text-center text-xs app-text-muted">
-              Belum ada Admin, Kasir, atau Operator terdaftar.
-            </div>
-          ` : `
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              ${list.map(emp => {
-                const isActive = emp.active !== false;
-                const branchObj = ownedBranches.find(b => b.id === emp.businessId) || getCurrentBusiness();
-                const roleBadge = emp.role === "ADMIN"
-                  ? "bg-purple-50 text-purple-700 border border-purple-200"
-                  : emp.role === "KASIR"
-                    ? "bg-blue-50 text-blue-700 border border-blue-200"
-                    : "bg-cyan-50 text-cyan-700 border border-cyan-200";
-                return `
-                  <div class="surface-card p-4 rounded-2xl border border-slate-200/80 flex flex-col justify-between gap-3 ${!isActive ? "opacity-75" : ""}">
-                    <div class="flex items-start justify-between gap-2">
-                      <div class="min-w-0">
+          <div class="surface-card rounded-2xl border border-slate-200/80 overflow-hidden">
+            <div class="p-4 border-b border-slate-100 font-semibold text-sm app-text-main">Daftar Admin, Kasir & Operator</div>
+            ${employees.length === 0 ? `
+              <div class="p-8 text-center text-xs app-text-muted">Belum ada akun Admin, Kasir, atau Operator yang terdaftar.</div>
+            ` : `
+              <div class="divide-y divide-slate-100">
+                ${employees.map(emp => {
+                  const branch = ownedBranches.find(b => b.id === emp.businessId) || {};
+                  const isActive = emp.active !== false;
+                  const roleBadge = emp.role === "ADMIN"
+                    ? "bg-purple-100 text-purple-800"
+                    : emp.role === "KASIR"
+                      ? "bg-blue-100 text-blue-800"
+                      : "bg-amber-100 text-amber-800";
+                  return `
+                    <div class="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div class="space-y-1">
                         <div class="flex items-center gap-2 flex-wrap">
-                          <span class="font-bold text-sm text-slate-900 truncate">${escapeHtml(emp.name)}</span>
-                          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold ${roleBadge}">${escapeHtml(emp.role)}</span>
+                          <span class="font-bold text-sm text-slate-900">${escapeHtml(emp.name)}</span>
+                          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${roleBadge}">${escapeHtml(emp.role)}</span>
+                          <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${isActive ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}">
+                            ${isActive ? "Aktif" : "Nonaktif"}
+                          </span>
                         </div>
-                        <div class="text-[11px] font-semibold text-blue-700 mt-1 truncate">Cabang: ${escapeHtml(branchObj.name)}</div>
-                        <div class="text-xs text-slate-500 mt-0.5 truncate">${escapeHtml(emp.email)} • ${escapeHtml(emp.phone || "-")}</div>
+                        <div class="text-xs text-slate-500">
+                          ${escapeHtml(emp.email)} • ${escapeHtml(emp.phone || "-")} • Cabang: <strong>${escapeHtml(branch.name || emp.businessId)}</strong>
+                        </div>
                       </div>
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ${isActive ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}">
-                        ${isActive ? "Aktif" : "Nonaktif"}
-                      </span>
+                      <div class="flex items-center gap-2 flex-wrap text-xs">
+                        <button type="button" onclick="window.appActions.openEmployeeFormModal('${escapeHtml(emp.id)}')"
+                          class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold">
+                          Edit
+                        </button>
+                        <button type="button" onclick="window.appActions.toggleEmployeeActive('${escapeHtml(emp.id)}')"
+                          class="px-3 py-1.5 rounded-xl ${isActive ? "bg-amber-50 text-amber-700 hover:bg-amber-100" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"} font-semibold">
+                          ${isActive ? "Nonaktifkan" : "Aktifkan"}
+                        </button>
+                        <button type="button" onclick="window.appActions.deleteEmployee('${escapeHtml(emp.id)}')"
+                          class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold">
+                          Hapus
+                        </button>
+                      </div>
                     </div>
-
-                    <div class="flex items-center gap-2 pt-2 border-t border-slate-100 text-xs">
-                      <button type="button" onclick="window.appActions.openEmployeeFormModal('${escapeHtml(emp.id)}')"
-                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold">
-                        Edit
-                      </button>
-                      <button type="button" onclick="window.appActions.toggleEmployeeActive('${escapeHtml(emp.id)}')"
-                        class="px-3 py-1.5 rounded-xl ${isActive ? "bg-amber-50 hover:bg-amber-100 text-amber-800" : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700"} font-semibold">
-                        ${isActive ? "Nonaktifkan" : "Aktifkan"}
-                      </button>
-                      <button type="button" onclick="window.appActions.deleteEmployee('${escapeHtml(emp.id)}')"
-                        class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold ml-auto">
-                        Hapus
-                      </button>
-                    </div>
-                  </div>
-                `;
-              }).join("")}
-            </div>
-          `}
+                  `;
+                }).join("")}
+              </div>
+            `}
+          </div>
         </div>
       `;
     }
@@ -2456,7 +2702,7 @@
             { id: "dashboard", label: "Dashboard" },
             ...(role !== "OPERATOR" ? [{ id: "pos", label: "Kasir Quick Order" }] : []),
             { id: "orders", label: "Order Laundry" },
-            { id: "scanner", label: "Scan Barcode/QR" },
+            { id: "scanner", label: "Scan Barcode Balok" },
             ...(role !== "OPERATOR" ? [{ id: "customers", label: "Pelanggan" }, { id: "payments", label: "Pembayaran & Piutang" }] : []),
             ...(role === "OWNER" || role === "ADMIN" ? [
               { id: "expenses", label: "Pengeluaran" },
@@ -2581,6 +2827,19 @@
 
     let html5QrInstance = null;
 
+    function onDecodeSuccess(decodedText) {
+      const code = String(decodedText || "").trim().toUpperCase();
+      if (!code) return;
+      const found = state.orders.find(o => String(o.invoiceNumber || "").toUpperCase() === code);
+      if (found) {
+        window.appActions.stopQrScanner();
+        state.activeTab = "orders";
+        state.selectedOrderId = found.id;
+        showToast(`Invoice ${found.invoiceNumber} ditemukan`);
+        renderApp();
+      }
+    }
+
     window.appActions = {
       closeModal,
 
@@ -2591,6 +2850,47 @@
 
       toggleCustomDropdown(id) {
         state.openDropdownId = state.openDropdownId === id ? null : id;
+        if (id === "modal-own-plan-dd") {
+          const box = document.getElementById("own-plan-dd-wrap");
+          if (box) {
+            box.innerHTML = renderCustomDropdown({
+              id: "modal-own-plan-dd",
+              value: state.modalOwnerPlan,
+              options: state.pricingPlans.map(p => ({ value: p.id, label: p.name, sub: `${formatRupiah(p.monthlyPrice)}/bln` })),
+              onSelectFn: "setModalOwnerPlan"
+            });
+            return;
+          }
+        }
+        if (id === "modal-emp-role-dd") {
+          const box = document.getElementById("emp-role-dd-wrap");
+          if (box) {
+            box.innerHTML = renderCustomDropdown({
+              id: "modal-emp-role-dd",
+              value: state.modalEmpRole,
+              options: [
+                { value: "ADMIN", label: "ADMIN", sub: "Kepala cabang (1 cabang per slot paket)" },
+                { value: "KASIR", label: "KASIR", sub: "Transaksi kasir & pelunasan" },
+                { value: "OPERATOR", label: "OPERATOR", sub: "Proses & update status cucian" }
+              ],
+              onSelectFn: "setModalEmpRole"
+            });
+            return;
+          }
+        }
+        if (id === "modal-emp-branch-dd") {
+          const ownedBranches = state.currentUser?.role === "OWNER" ? getOwnerBusinesses(state.currentUser.id) : [getCurrentBusiness()];
+          const box = document.getElementById("emp-branch-dd-wrap");
+          if (box) {
+            box.innerHTML = renderCustomDropdown({
+              id: "modal-emp-branch-dd",
+              value: state.modalEmpBranchId,
+              options: ownedBranches.map(b => ({ value: b.id, label: b.name, sub: b.address || "" })),
+              onSelectFn: "setModalEmpBranch"
+            });
+            return;
+          }
+        }
         renderApp();
       },
 
@@ -2795,12 +3095,46 @@
         if (!srv) return;
         const existing = state.quickCart.find(i => i.serviceId === srv.id);
         if (existing) {
-          existing.qty += 1;
-          existing.subtotal = existing.qty * existing.price;
+          existing.qty = Math.round((Number(existing.qty || 0) + 1) * 100) / 100;
+          existing.subtotal = Math.round(existing.qty * Number(existing.price || 0));
         } else {
           state.quickCart.push({ serviceId: srv.id, name: srv.name, qty: 1, unit: srv.unit, price: srv.price, subtotal: srv.price });
         }
         renderApp();
+      },
+
+      updateCartItemQty(idx, rawQty) {
+        const item = state.quickCart[idx];
+        if (!item) return;
+        const parsed = parseFloat(rawQty);
+        const validQty = isNaN(parsed) || parsed < 0 ? 0 : Math.round(parsed * 100) / 100;
+        item.qty = validQty;
+        item.subtotal = Math.round(validQty * Number(item.price || 0));
+
+        const subtotal = state.quickCart.reduce((s, it) => s + Number(it.subtotal || 0), 0);
+        const cardEl = document.activeElement?.closest(".p-3.rounded-2xl");
+        if (cardEl) {
+          const breakdownSpan = cardEl.querySelector(".border-t span.text-slate-500");
+          const subSpan = cardEl.querySelector(".border-t span.font-bold");
+          if (breakdownSpan) breakdownSpan.textContent = `${item.qty} ${item.unit} × ${formatRupiah(item.price)}`;
+          if (subSpan) subSpan.textContent = formatRupiah(item.subtotal);
+        }
+        const summaryBox = document.querySelector(".bg-blue-50\\/60");
+        if (summaryBox) {
+          summaryBox.innerHTML = `
+            <div class="text-[11px] font-bold text-blue-900">Rincian Biaya Layanan</div>
+            ${state.quickCart.map(it => `
+              <div class="flex items-center justify-between gap-2 text-[11px] text-slate-700">
+                <span class="truncate">${escapeHtml(it.name)} (${it.qty} ${escapeHtml(it.unit)} × ${formatRupiah(it.price)})</span>
+                <span class="font-semibold shrink-0">${formatRupiah(it.subtotal)}</span>
+              </div>
+            `).join("")}
+            <div class="pt-1.5 border-t border-blue-200/80 flex justify-between font-bold text-slate-900 text-sm">
+              <span>Total Biaya</span>
+              <span class="theme-primary-text">${formatRupiah(subtotal)}</span>
+            </div>
+          `;
+        }
       },
 
       removeCartItem(idx) {
@@ -2822,6 +3156,10 @@
           showToast("Keranjang masih kosong", "error");
           return;
         }
+        if (state.quickCart.some(it => Number(it.qty || 0) <= 0)) {
+          showToast("Berat atau jumlah layanan harus lebih dari 0", "error");
+          return;
+        }
         const cust = state.customers.find(c => c.id === state.quickCustomerId);
         const biz = getCurrentBusiness();
         const now = getJakartaNow();
@@ -2838,6 +3176,10 @@
           customerId: cust.id,
           customerName: cust.name,
           customerPhone: cust.phone,
+          customerAddress: cust.address || "",
+          customerLat: cust.lat || "",
+          customerLng: cust.lng || "",
+          customerMapsUrl: cust.mapsUrl || "",
           items: JSON.parse(JSON.stringify(state.quickCart)),
           totalAmount,
           paidAmount,
@@ -3070,37 +3412,110 @@
       setCustomerSearch(q) { state.searchCustomer = q; renderApp(); },
 
       openAddCustomerModal(selectForOrder = false) {
+        this.openCustomerFormModal(null, selectForOrder);
+      },
+
+      openCustomerFormModal(customerId = null, selectForOrder = false) {
+        const bizId = getCurrentBusiness().id;
+        const cust = customerId ? state.customers.find(c => c.id === customerId && c.businessId === bizId) : null;
+        const existingPin = cust?.lat && cust?.lng ? `${cust.lat}, ${cust.lng}` : (cust?.mapsUrl || "");
+
         openModal(`
-          <div class="space-y-4">
-            <div class="font-bold text-base text-slate-900">Tambah Pelanggan Baru</div>
-            <input type="text" id="cust-name" placeholder="Nama lengkap" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="text" id="cust-phone" placeholder="No. HP / WhatsApp (mis. 0812...)" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="text" id="cust-address" placeholder="Alamat" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <div class="flex justify-end gap-2">
-              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold">Batal</button>
-              <button type="button" onclick="window.appActions.saveCustomer(${selectForOrder ? "true" : "false"})" class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-semibold">Simpan</button>
+          <div class="space-y-3.5 text-xs">
+            <div class="font-bold text-base text-slate-900">${cust ? "Edit Pelanggan & Titik Maps" : "Tambah Pelanggan Baru"}</div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Nama Lengkap</label>
+              <input type="text" id="cust-name" value="${escapeHtml(cust?.name || "")}" placeholder="Nama pelanggan" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">No. HP / WhatsApp</label>
+              <input type="text" id="cust-phone" value="${escapeHtml(cust?.phone || "")}" placeholder="0812..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Alamat Lengkap / Patokan Rumah</label>
+              <input type="text" id="cust-address" value="${escapeHtml(cust?.address || "")}" placeholder="Jl. Melati No. 8, Blok B2..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+
+            <div class="p-3 rounded-2xl bg-blue-50/70 border border-blue-200 space-y-2">
+              <div class="flex items-center justify-between gap-2">
+                <label class="font-bold text-blue-900">Titik Google Maps (Untuk Pengantaran)</label>
+                <button type="button" onclick="window.appActions.captureCurrentGpsForCustomer()"
+                  class="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold">
+                  Ambil GPS Sekarang
+                </button>
+              </div>
+              <input type="text" id="cust-maps-input" value="${escapeHtml(existingPin)}"
+                placeholder="Tempel link Share Location WA / Google Maps atau koordinat..."
+                class="w-full px-3 py-2 rounded-xl border border-blue-200 bg-white text-xs" />
+              <div class="text-[10px] text-blue-800 leading-relaxed">
+                Cara termudah: Minta pelanggan <strong>Share Location</strong> di WhatsApp, lalu <em>copy-paste</em> link-nya ke kolom di atas (atau klik <strong>Ambil GPS Sekarang</strong>).
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-1">
+              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 font-semibold">Batal</button>
+              <button type="button" onclick="window.appActions.saveCustomer(${selectForOrder ? "true" : "false"}, '${escapeHtml(cust?.id || "")}')" class="px-4 py-2 rounded-xl theme-primary-bg text-white font-semibold">Simpan</button>
             </div>
           </div>
         `);
       },
 
-      saveCustomer(selectForOrder = false) {
+      captureCurrentGpsForCustomer() {
+        if (!navigator.geolocation) {
+          showToast("Browser tidak mendukung GPS", "error");
+          return;
+        }
+        showToast("Mengambil titik koordinat GPS...");
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const lat = pos.coords.latitude.toFixed(6);
+            const lng = pos.coords.longitude.toFixed(6);
+            const inputEl = document.getElementById("cust-maps-input");
+            if (inputEl) inputEl.value = `${lat}, ${lng}`;
+            showToast("Titik GPS berhasil diambil");
+          },
+          () => {
+            showToast("Gagal mengambil GPS. Pastikan izin lokasi aktif.", "error");
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      },
+
+      saveCustomer(selectForOrder = false, existingCustId = "") {
         const name = (document.getElementById("cust-name").value || "").trim();
         const phone = (document.getElementById("cust-phone").value || "").trim();
         const address = (document.getElementById("cust-address").value || "").trim();
+        const mapsRaw = (document.getElementById("cust-maps-input")?.value || "").trim();
         if (!name || !phone) {
           showToast("Nama dan nomor HP wajib diisi", "error");
           return;
         }
-        const rec = { id: "cust_" + Date.now(), businessId: getCurrentBusiness().id, name, phone, address };
-        state.customers.unshift(rec);
+        const parsedMap = parseGoogleMapsInput(mapsRaw, address);
+        const bizId = getCurrentBusiness().id;
+        const existing = existingCustId ? state.customers.find(c => c.id === existingCustId && c.businessId === bizId) : null;
+        const rec = {
+          id: existing ? existing.id : ("cust_" + Date.now()),
+          businessId: bizId,
+          name,
+          phone,
+          address,
+          lat: parsedMap.lat,
+          lng: parsedMap.lng,
+          mapsUrl: parsedMap.mapsUrl
+        };
+
+        if (existing) {
+          state.customers = state.customers.map(c => c.id === rec.id ? rec : c);
+        } else {
+          state.customers.unshift(rec);
+        }
         if (selectForOrder) {
           state.quickCustomerId = rec.id;
         }
         saveStateToStorage();
         syncRecordToCloud("customers", rec);
         closeModal();
-        showToast("Pelanggan ditambahkan");
+        showToast(existing ? "Data & lokasi pelanggan diperbarui" : "Pelanggan & titik lokasi disimpan");
         renderApp();
       },
 
@@ -3142,38 +3557,102 @@
       },
 
       openAddServiceModal() {
+        this.openServiceFormModal(null);
+      },
+
+      openServiceFormModal(serviceId = null) {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") {
+          showToast("Hanya Admin atau Owner yang dapat mengelola layanan", "error");
+          return;
+        }
+        const srv = serviceId ? state.services.find(s => s.id === serviceId && s.businessId === getCurrentBusiness().id) : null;
         openModal(`
-          <div class="space-y-4">
-            <div class="font-extrabold text-base text-slate-900">Tambah Layanan</div>
-            <input type="text" id="srv-name" placeholder="Nama layanan" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="text" id="srv-cat" placeholder="Kategori (Kiloan / Satuan)" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="text" id="srv-unit" placeholder="Satuan (kg / pcs)" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="number" id="srv-price" placeholder="Tarif (Rp)" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <input type="number" id="srv-eta" value="48" placeholder="Estimasi jam" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-            <div class="flex justify-end gap-2">
-              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 text-xs font-bold">Batal</button>
-              <button type="button" onclick="window.appActions.saveService()" class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold">Simpan</button>
+          <div class="space-y-3.5 text-xs">
+            <div class="font-extrabold text-base text-slate-900">${srv ? "Edit Layanan & Tarif" : "Tambah Layanan & Tarif"}</div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Nama Layanan</label>
+              <input type="text" id="srv-name" value="${escapeHtml(srv?.name || "")}" placeholder="Contoh: Cuci Komplit Reguler" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Kategori</label>
+                <input type="text" id="srv-cat" value="${escapeHtml(srv?.category || "Kiloan")}" placeholder="Kiloan / Satuan" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Satuan</label>
+                <input type="text" id="srv-unit" value="${escapeHtml(srv?.unit || "kg")}" placeholder="kg / pcs / pasang" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Tarif (Rp)</label>
+                <input type="number" id="srv-price" value="${srv ? Number(srv.price) : ""}" placeholder="8000" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Estimasi Selesai (Jam)</label>
+                <input type="number" id="srv-eta" value="${srv ? Number(srv.etaHours) : 48}" placeholder="48" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+              </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 font-bold">Batal</button>
+              <button type="button" onclick="window.appActions.saveService('${escapeHtml(srv?.id || "")}')" class="px-4 py-2 rounded-xl theme-primary-bg text-white font-bold">Simpan</button>
             </div>
           </div>
         `);
       },
 
-      saveService() {
+      saveService(existingServiceId = "") {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") {
+          showToast("Hanya Admin atau Owner yang dapat menyimpan layanan", "error");
+          return;
+        }
         const name = (document.getElementById("srv-name").value || "").trim();
         const category = (document.getElementById("srv-cat").value || "Kiloan").trim();
         const unit = (document.getElementById("srv-unit").value || "kg").trim();
         const price = Number(document.getElementById("srv-price").value || 0);
-        const etaHours = Number(document.getElementById("srv-eta").value || 48);
+        const etaHours = Math.max(1, Number(document.getElementById("srv-eta").value || 48));
         if (!name || price <= 0) {
           showToast("Nama dan tarif wajib diisi", "error");
           return;
         }
-        const rec = { id: "srv_" + Date.now(), businessId: getCurrentBusiness().id, name, category, unit, price, etaHours };
-        state.services.push(rec);
+        const bizId = getCurrentBusiness().id;
+        const existing = existingServiceId ? state.services.find(s => s.id === existingServiceId && s.businessId === bizId) : null;
+        const rec = {
+          id: existing ? existing.id : ("srv_" + Date.now()),
+          businessId: bizId,
+          name,
+          category,
+          unit,
+          price,
+          etaHours
+        };
+        if (existing) {
+          state.services = state.services.map(s => s.id === rec.id ? rec : s);
+        } else {
+          state.services.push(rec);
+        }
         saveStateToStorage();
         syncRecordToCloud("services", rec);
         closeModal();
-        showToast("Layanan ditambahkan");
+        showToast(existing ? "Layanan & tarif diperbarui" : "Layanan & tarif ditambahkan");
+        renderApp();
+      },
+
+      deleteService(serviceId) {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") {
+          showToast("Hanya Admin atau Owner yang dapat menghapus layanan", "error");
+          return;
+        }
+        const bizId = getCurrentBusiness().id;
+        const target = state.services.find(s => s.id === serviceId && s.businessId === bizId);
+        if (!target) return;
+        state.services = state.services.filter(s => s.id !== serviceId);
+        saveStateToStorage();
+        deleteRecordFromCloud("services", serviceId);
+        showToast(`Layanan "${target.name}" dihapus`);
         renderApp();
       },
 
@@ -3584,6 +4063,7 @@
           password,
           phone,
           role,
+          plan,
           maxBranches,
           status: existingOwn?.status || "ACTIVE",
           expiresAt
@@ -3610,7 +4090,15 @@
         }
 
         if (existingBiz) {
-          state.businesses = state.businesses.map(b => b.id === businessId ? bizRec : b);
+          state.businesses = state.businesses.map(b => {
+            if (b.id === businessId) return bizRec;
+            if (b.ownerId === ownerId) {
+              const updatedBranch = Object.assign({}, b, { plan, expiresAt });
+              syncRecordToCloud("businesses", updatedBranch);
+              return updatedBranch;
+            }
+            return b;
+          });
         } else {
           state.businesses.push(bizRec);
         }
@@ -3619,7 +4107,7 @@
         syncRecordToCloud("owners", ownerRec);
         syncRecordToCloud("businesses", bizRec);
         closeModal();
-        showToast("Data Owner, kuota cabang & masa aktif tersimpan");
+        showToast(`Data Owner & paket ${plan} tersimpan`);
         renderApp();
       },
 
@@ -3933,28 +4421,28 @@
             try { html5QrInstance.clear(); } catch (e) {}
             html5QrInstance = null;
           }
+          const Fmt = window.Html5QrcodeSupportedFormats;
+          const barcodeFormats = Fmt ? [
+            Fmt.CODE_128,
+            Fmt.CODE_39,
+            Fmt.CODE_93,
+            Fmt.EAN_13,
+            Fmt.EAN_8,
+            Fmt.UPC_A,
+            Fmt.UPC_E,
+            Fmt.ITF,
+            Fmt.CODABAR
+          ] : undefined;
 
-          const onDecodeSuccess = (decodedText) => {
-            let inv = String(decodedText || "").trim();
-            try {
-              const u = new URL(inv);
-              if (u.searchParams.get("track")) inv = u.searchParams.get("track");
-              else if (u.hash && u.hash.includes("track=")) inv = decodeURIComponent(u.hash.split("track=")[1]);
-            } catch (e) {}
-            this.stopQrScanner();
-            const found = state.orders.find(o => String(o.invoiceNumber).toUpperCase() === inv.toUpperCase());
-            if (found) {
-              state.activeTab = "orders";
-              state.selectedOrderId = found.id;
-              renderApp();
-              showToast(`Invoice ${found.invoiceNumber} ditemukan`);
-            } else {
-              showToast(`Invoice ${inv} tidak ditemukan`, "error");
-            }
+          const config = {
+            fps: 12,
+            qrbox: { width: 280, height: 110 },
+            aspectRatio: 1.5,
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true }
           };
-
-          const config = { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0 };
-          html5QrInstance = new window.Html5Qrcode("qr-reader");
+          html5QrInstance = barcodeFormats
+            ? new window.Html5Qrcode("qr-reader", { formatsToSupport: barcodeFormats, verbose: false })
+            : new window.Html5Qrcode("qr-reader");
 
           let started = false;
           try {
@@ -3972,7 +4460,7 @@
           }
 
           if (started) {
-            showToast("Kamera scanner aktif");
+            showToast("Kamera scan barcode balok aktif");
           }
         } catch (err) {
           const msg = String(err?.message || err || "");
