@@ -19,9 +19,10 @@
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link id="dynamic-google-font" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root {
+      --app-font: 'Poppins';
       --brand-primary: #0284c7;
       --brand-soft: rgba(2, 132, 199, 0.10);
       --brand-border: rgba(2, 132, 199, 0.25);
@@ -33,7 +34,7 @@
 
     * {
       box-sizing: border-box;
-      font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: var(--app-font), -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     html {
@@ -286,6 +287,7 @@
     const DEFAULT_PLATFORM_BRANDING = {
       appName: "SSmart Laundry",
       tagline: "Kelola Laundry Tanpa Ribet",
+      fontFamily: "Poppins",
       primaryColor: "#0284c7",
       bgCanvas: "#f4f7fb",
       bgSurface: "#ffffff",
@@ -685,6 +687,24 @@ v2.6 — Pembaruan Terbaru
       { id: "guide", label: "Panduan Pengguna", field: "guideText", defaultKey: "guideText" },
       { id: "contact", label: "Kontak & Bantuan", field: "contactText", defaultKey: "contactText" },
       { id: "changelog", label: "Catatan Pembaruan", field: "changelogText", defaultKey: "changelogText" }
+    ];
+
+    const AVAILABLE_WEB_FONTS = [
+      { value: "Poppins", label: "Poppins (Modern Geometric — Default)" },
+      { value: "Plus Jakarta Sans", label: "Plus Jakarta Sans (SaaS Modern)" },
+      { value: "Inter", label: "Inter (Clean UI & Digital)" },
+      { value: "Lato", label: "Lato (Humanist & Ramah)" },
+      { value: "Open Sans", label: "Open Sans (Netral & Mudah Dibaca)" },
+      { value: "Roboto", label: "Roboto (Material & Tegas)" },
+      { value: "Montserrat", label: "Montserrat (Elegan & Kontemporer)" },
+      { value: "Nunito", label: "Nunito (Rounded & Lembut)" },
+      { value: "DM Sans", label: "DM Sans (Minimalis Modern)" },
+      { value: "Work Sans", label: "Work Sans (Proporsional & Rapi)" },
+      { value: "Rubik", label: "Rubik (Bulat Halus & Modern)" },
+      { value: "Outfit", label: "Outfit (Geometric Bersih)" },
+      { value: "Quicksand", label: "Quicksand (Ringan & Friendly)" },
+      { value: "Raleway", label: "Raleway (Stylish & Klasik Modern)" },
+      { value: "Ubuntu", label: "Ubuntu (Teknologi & Jelas)" }
     ];
 
     // --- UTILITIES ---
@@ -1354,15 +1374,17 @@ v2.6 — Pembaruan Terbaru
     // --- THEME & PWA MANIFEST ---
     function applyThemeVariables() {
       const pb = state.platformBranding;
+      const fontFamily = pb.fontFamily || "Poppins";
       const primary = pb.primaryColor || "#0284c7";
       const bgCanvas = pb.bgCanvas || "#f4f7fb";
       const bgSurface = pb.bgSurface || "#ffffff";
       const textPrimary = pb.textPrimary || "#0f172a";
 
-      const themeSig = [pb.appName, primary, bgCanvas, bgSurface, textPrimary, pb.logoUrl, pb.faviconUrl].join("|");
+      const themeSig = [pb.appName, fontFamily, primary, bgCanvas, bgSurface, textPrimary, pb.logoUrl, pb.faviconUrl].join("|");
       if (lastThemeSignature !== themeSig) {
         lastThemeSignature = themeSig;
         const root = document.documentElement.style;
+        root.setProperty("--app-font", `'${fontFamily}'`);
         root.setProperty("--brand-primary", primary);
         root.setProperty("--brand-soft", hexToRgba(primary, 0.10));
         root.setProperty("--brand-border", hexToRgba(primary, 0.26));
@@ -1370,6 +1392,13 @@ v2.6 — Pembaruan Terbaru
         root.setProperty("--bg-surface", bgSurface);
         root.setProperty("--text-primary", textPrimary);
         document.title = `${pb.appName} — ${pb.tagline}`;
+
+        const fontLink = document.getElementById("dynamic-google-font");
+        if (fontLink) {
+          const encodedFont = encodeURIComponent(fontFamily).replace(/%20/g, "+");
+          fontLink.href = `https://fonts.googleapis.com/css2?family=${encodedFont}:wght@400;500;600;700;800&display=swap`;
+        }
+
         if (pb.faviconUrl) {
           const fav = document.getElementById("dynamic-favicon");
           if (fav) fav.href = pb.faviconUrl;
@@ -5217,6 +5246,17 @@ v2.6 — Pembaruan Terbaru
                     <label class="block text-slate-600 font-medium mb-1">Teks Footer Platform</label>
                     <input id="pb-footer" value="${esc(pb.footerText || "")}" class="w-full px-3 py-2 rounded-xl" />
                   </div>
+                  <div class="sm:col-span-2">
+                    <label class="block text-slate-600 font-medium mb-1">Jenis Font Utama Seluruh Website (Google Fonts)</label>
+                    ${renderCustomDropdown({
+                      id: "dd-pb-font",
+                      value: pb.fontFamily || "Poppins",
+                      options: AVAILABLE_WEB_FONTS,
+                      onSelectExpr: "previewPlatformFont('__VAL__')"
+                    })}
+                    <input id="pb-font-family" type="hidden" value="${esc(pb.fontFamily || "Poppins")}" />
+                    <p class="text-[11px] text-slate-500 mt-1">Font yang dipilih langsung diterapkan ke Landing Page, Modal Login, dan seluruh dashboard outlet.</p>
+                  </div>
                 </div>
 
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
@@ -5562,6 +5602,10 @@ v2.6 — Pembaruan Terbaru
       pb.tagline = document.getElementById("pb-tagline").value.trim();
       pb.supportWa = document.getElementById("pb-wa").value.trim();
       pb.footerText = document.getElementById("pb-footer").value.trim();
+      const fontInp = document.getElementById("pb-font-family");
+      if (fontInp && fontInp.value.trim()) {
+        pb.fontFamily = fontInp.value.trim();
+      }
       pb.primaryColor = document.getElementById("pb-color").value;
       pb.bgCanvas = document.getElementById("pb-bg-canvas").value;
       pb.bgSurface = document.getElementById("pb-bg-surface").value;
@@ -5589,6 +5633,15 @@ v2.6 — Pembaruan Terbaru
       syncPlatformBrandingToCloud();
       showToast("Pengaturan umum platform berhasil diperbarui!", "success");
       renderApp({ forceShellRebuild: true });
+    }
+
+    function previewPlatformFont(fontName) {
+      state.openDropdownId = null;
+      state.platformBranding.fontFamily = fontName;
+      const inp = document.getElementById("pb-font-family");
+      if (inp) inp.value = fontName;
+      applyThemeVariables();
+      renderApp();
     }
 
     function saveLandingPageSettings(e) {
@@ -6018,6 +6071,7 @@ v2.6 — Pembaruan Terbaru
     window.removeLandingRepeaterItem = removeLandingRepeaterItem;
     window.saveSingleLegalDocument = saveSingleLegalDocument;
     window.resetSingleLegalDocToDefault = resetSingleLegalDocToDefault;
+    window.previewPlatformFont = previewPlatformFont;
     window.savePlatformGeneralSettings = savePlatformGeneralSettings;
     window.saveLandingPageSettings = saveLandingPageSettings;
     window.handleFileToInput = handleFileToInput;
