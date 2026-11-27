@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <title>SSmart Laundry - Kelola Laundry tanpa Ribet</title>
   <link id="dynamic-favicon" rel="icon" href="data:," />
+  <link id="dynamic-manifest" rel="manifest" href="" />
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
@@ -95,15 +99,46 @@
     .smooth-card:hover {
       transform: translateY(-1px);
     }
+    #thermal-print-area {
+      display: none;
+    }
     @media print {
-      .no-print { display: none !important; }
-      body { background: #fff !important; }
+      @page {
+        margin: 0;
+        size: auto;
+      }
+      html, body {
+        background: #fff !important;
+        color: #000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      #app, #modal-root, #toast-root, .no-print {
+        display: none !important;
+      }
+      #thermal-print-area {
+        display: block !important;
+        width: 100%;
+        max-width: 76mm;
+        margin: 0 auto;
+        padding: 3mm 2.5mm 6mm 2.5mm;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 11px;
+        line-height: 1.35;
+        color: #000 !important;
+        background: #fff !important;
+      }
+      #thermal-print-area * {
+        color: #000 !important;
+        box-shadow: none !important;
+      }
     }
   </style>
 </head>
 <body class="min-h-screen">
   <div id="app"></div>
   <div id="modal-root" class="no-print"></div>
+  <div id="thermal-print-area"></div>
   <div id="toast-root" class="fixed bottom-4 right-4 z-[90] flex flex-col gap-2 pointer-events-none no-print"></div>
 
   <script type="module">
@@ -125,6 +160,7 @@
     let fbAuth = null;
     let fbDb = null;
     let fbUnsubscribers = [];
+    let deferredInstallPrompt = null;
 
     try {
       fbApp = initializeApp(firebaseConfig);
@@ -188,12 +224,17 @@
       searchOrder: "",
       searchCustomer: "",
       reportPeriod: "30d",
+      reportStartDate: "",
+      reportEndDate: "",
+      canInstallPwa: false,
       settingsSubTab: "profile",
       superAdminSubTab: "tenants",
       editingPlanId: null,
       editingOwnerId: null,
       quickCart: [],
       quickCustomerId: "",
+      quickDiscountAmount: 0,
+      quickDeliveryFee: 0,
       quickPaidAmount: 0,
       quickPaymentMethod: "Tunai (CASH)",
       quickNotes: "",
@@ -214,21 +255,21 @@
           "Atur harga paket, warna tema global, logo web, favicon, footer, dan teks panduan tiap role di menu Super Admin SaaS."
         ],
         OWNER: [
-          "Kelola kasir, order, pelanggan, pembayaran, pengeluaran, layanan, dan laporan keuangan.",
+          "Kelola kasir, order, pelanggan, pembayaran, stok bahan baku, pengeluaran, layanan, dan laporan keuangan (export CSV/Excel).",
           "Tambah, edit, aktifkan/nonaktifkan, atau hapus akun Admin, Kasir, dan Operator di bawah naungan Anda pada menu Karyawan.",
           "Upload logo bisnis & atur rekening/QRIS di Pengaturan, serta gunakan menu Help untuk kontak WhatsApp Super Admin."
         ],
         ADMIN: [
           "Berada di bawah naungan Owner untuk membantu mengelola operasional cabang harian.",
-          "Jalankan transaksi kasir, pembaruan status order, pelanggan, pembayaran/piutang, pengeluaran, layanan, serta rekening bank & upload gambar QRIS di Pengaturan.",
+          "Jalankan transaksi kasir (termasuk diskon & ongkir), pembaruan status order, stok bahan baku, pelanggan, pembayaran/piutang, pengeluaran, layanan, serta rekening bank & upload gambar QRIS di Pengaturan.",
           "Gunakan tombol perpanjangan paket saat masa aktif mendekati 7 hari terakhir."
         ],
         KASIR: [
-          "Buat order baru di Kasir Quick Order (bisa tambah pelanggan baru langsung & tempel link shareloc WA untuk titik Google Maps) dan cetak atau share nota ke WA pelanggan.",
-          "Cari nota lewat Scan Barcode Balok dan catat pelunasan pembayaran pelanggan."
+          "Buat order baru di Kasir Quick Order (bisa tambah pelanggan baru langsung, isi diskon/ongkir, & tempel link shareloc WA untuk titik Google Maps) dan cetak atau share nota ke WA pelanggan.",
+          "Cari nota lewat Scan Barcode Balok, kabari pelanggan via WA 1-klik saat cucian siap diambil, dan catat pelunasan pembayaran."
         ],
         OPERATOR: [
-          "Buka menu Order Laundry atau Scan Barcode Balok untuk memperbarui tahap proses cucian (Diterima, Dicuci, Dikeringkan, Disetrika, Siap Diambil, Selesai) serta lihat titik Google Maps pelanggan saat antar."
+          "Buka menu Order Laundry atau Scan Barcode Balok untuk memperbarui tahap proses cucian (Diterima, Dicuci, Dikeringkan, Disetrika, Siap Diambil, Selesai) lalu klik tombol Kabari WA 1-klik tanpa API berbayar."
         ]
       },
       mobileSidebarOpen: false,
@@ -246,7 +287,8 @@
       orders: [],
       payments: [],
       expenses: [],
-      cashTransactions: []
+      cashTransactions: [],
+      inventory: []
     };
 
     function escapeHtml(str) {
@@ -261,6 +303,27 @@
     function formatRupiah(num) {
       const n = Number(num || 0);
       return "Rp " + n.toLocaleString("id-ID");
+    }
+
+    function buildOrderReadyWaLink(ord) {
+      if (!ord) return "";
+      const biz = state.businesses.find(b => b.id === ord.businessId) || getCurrentBusiness();
+      const trackUrl = getTrackingUrl(ord.invoiceNumber);
+      const sisa = Math.max(0, Number(ord.totalAmount || 0) - Number(ord.paidAmount || 0));
+      const waPhoneRaw = String(ord.customerPhone || "").replace(/\D/g, "");
+      const waPhone = waPhoneRaw.startsWith("0") ? ("62" + waPhoneRaw.slice(1)) : waPhoneRaw;
+      const paymentNote = sisa > 0
+        ? `Status Pembayaran: *BELUM LUNAS* (Sisa tagihan: *${formatRupiah(sisa)}*)`
+        : `Status Pembayaran: *LUNAS* (${formatRupiah(ord.totalAmount)})`;
+
+      const msg = encodeURIComponent(
+        `Halo *${ord.customerName}*,\n` +
+        `Kabar baik! Cucian Anda di *${biz.name}* dengan nomor invoice *${ord.invoiceNumber}* saat ini sudah *SIAP DIAMBIL*.\n\n` +
+        `${paymentNote}\n` +
+        `Cek rincian nota & lokasi outlet:\n${trackUrl}\n\n` +
+        `Terima kasih telah mempercayakan cucian Anda kepada *${biz.name}*!`
+      );
+      return waPhone ? `https://wa.me/${waPhone}?text=${msg}` : `https://wa.me/?text=${msg}`;
     }
 
     function parseGoogleMapsInput(rawInput, fallbackAddress = "") {
@@ -474,10 +537,10 @@
         return ["dashboard", "saas", "settings", "guide"].includes(tab);
       }
       if (role === "OWNER") {
-        return ["dashboard", "pos", "orders", "scanner", "customers", "payments", "expenses", "reports", "services", "employees", "settings", "help", "guide"].includes(tab);
+        return ["dashboard", "pos", "orders", "scanner", "customers", "payments", "inventory", "expenses", "reports", "services", "employees", "settings", "help", "guide"].includes(tab);
       }
       if (role === "ADMIN") {
-        return ["dashboard", "pos", "orders", "scanner", "customers", "payments", "expenses", "reports", "services", "settings", "guide"].includes(tab);
+        return ["dashboard", "pos", "orders", "scanner", "customers", "payments", "inventory", "expenses", "reports", "services", "settings", "guide"].includes(tab);
       }
       if (role === "KASIR") {
         return ["dashboard", "pos", "orders", "scanner", "customers", "payments", "guide"].includes(tab);
@@ -505,6 +568,32 @@
       document.title = pb.platformName ? `${pb.platformName} - Kelola Laundry tanpa Ribet` : "SSmart Laundry";
       const fav = document.getElementById("dynamic-favicon");
       if (fav && pb.faviconUrl) fav.href = pb.faviconUrl;
+      updatePwaManifest(pb);
+    }
+
+    function updatePwaManifest(pb) {
+      try {
+        const manifestEl = document.getElementById("dynamic-manifest");
+        if (!manifestEl) return;
+        const iconSrc = pb.logoUrl || "data:image/svg+xml;utf8," + encodeURIComponent(
+          `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="${pb.primaryColor || "#2563eb"}"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-weight="800" font-size="76">SL</text></svg>`
+        );
+        const manifestObj = {
+          name: pb.platformName || "SSmart Laundry",
+          short_name: (pb.platformName || "SSmart Laundry").slice(0, 16),
+          description: "Sistem POS & Manajemen Outlet Laundry",
+          start_url: window.location.href.split("#")[0],
+          display: "standalone",
+          background_color: pb.bgColor || "#f8fafc",
+          theme_color: pb.primaryColor || "#2563eb",
+          icons: [
+            { src: iconSrc, sizes: "192x192", type: "image/png" },
+            { src: iconSrc, sizes: "512x512", type: "image/png" }
+          ]
+        };
+        const blob = new Blob([JSON.stringify(manifestObj)], { type: "application/manifest+json" });
+        manifestEl.href = URL.createObjectURL(blob);
+      } catch (e) {}
     }
 
     function showToast(msg, type = "success") {
@@ -614,6 +703,9 @@
         payments: isSolid
           ? `<path fill="currentColor" d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>`
           : `<rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M2 10h20M6 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+        inventory: isSolid
+          ? `<path fill="currentColor" d="M20 7.5L12 3 4 7.5v9l8 4.5 8-4.5v-9zM12 12.2L6.2 9 12 5.8 17.8 9 12 12.2z"/>`
+          : `<path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>`,
         expenses: isSolid
           ? `<path fill="currentColor" d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/>`
           : `<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
@@ -758,6 +850,9 @@
           customerLng: "106.7981",
           customerMapsUrl: "https://www.google.com/maps?q=-6.2442,106.7981",
           items: [{ serviceId: "srv_01", name: "Cuci Komplit Reguler", qty: 4, unit: "kg", price: 8000, subtotal: 32000 }],
+          subtotalAmount: 32000,
+          discountAmount: 0,
+          deliveryFee: 0,
           totalAmount: 32000,
           paidAmount: 32000,
           paymentStatus: "PAID",
@@ -765,7 +860,11 @@
           status: "READY",
           notes: "Pisahkan baju putih",
           createdAt: `${today} 09:15`,
-          estimatedDone: addDaysToDateStr(today, 2)
+          estimatedDone: addDaysToDateStr(today, 2),
+          activityLogs: [
+            { at: `${today} 09:15`, actor: "Rina Kasir (KASIR)", action: "Order dibuat (Diterima)" },
+            { at: `${today} 13:20`, actor: "Deni Operator (OPERATOR)", action: "Status diubah menjadi Siap Diambil" }
+          ]
         },
         {
           id: "ord_02",
@@ -779,6 +878,9 @@
           customerLng: "106.8054",
           customerMapsUrl: "https://www.google.com/maps?q=-6.2515,106.8054",
           items: [{ serviceId: "srv_03", name: "Bed Cover Double", qty: 1, unit: "pcs", price: 35000, subtotal: 35000 }],
+          subtotalAmount: 35000,
+          discountAmount: 0,
+          deliveryFee: 0,
           totalAmount: 35000,
           paidAmount: 15000,
           paymentStatus: "PARTIAL",
@@ -786,7 +888,11 @@
           status: "WASHING",
           notes: "DP 15 ribu",
           createdAt: `${today} 11:30`,
-          estimatedDone: addDaysToDateStr(today, 3)
+          estimatedDone: addDaysToDateStr(today, 3),
+          activityLogs: [
+            { at: `${today} 11:30`, actor: "Rina Kasir (KASIR)", action: "Order dibuat (Diterima)" },
+            { at: `${today} 12:10`, actor: "Deni Operator (OPERATOR)", action: "Status diubah menjadi Dicuci" }
+          ]
         },
         {
           id: "ord_03",
@@ -800,6 +906,9 @@
           customerLng: "106.7981",
           customerMapsUrl: "https://www.google.com/maps?q=-6.2442,106.7981",
           items: [{ serviceId: "srv_02", name: "Cuci Lipat Express", qty: 3, unit: "kg", price: 12000, subtotal: 36000 }],
+          subtotalAmount: 36000,
+          discountAmount: 0,
+          deliveryFee: 0,
           totalAmount: 36000,
           paidAmount: 36000,
           paymentStatus: "PAID",
@@ -807,7 +916,10 @@
           status: "RECEIVED",
           notes: "Baru masuk",
           createdAt: `${today} 14:10`,
-          estimatedDone: addDaysToDateStr(today, 1)
+          estimatedDone: addDaysToDateStr(today, 1),
+          activityLogs: [
+            { at: `${today} 14:10`, actor: "Rina Kasir (KASIR)", action: "Order dibuat (Diterima)" }
+          ]
         }
       ];
 
@@ -824,6 +936,12 @@
       state.cashTransactions = [
         { id: "csh_01", businessId: "biz_ssmart_01", type: "IN", category: "Pembayaran Order", amount: 83000, date: today, note: "Kas masuk order hari ini" },
         { id: "csh_02", businessId: "biz_ssmart_01", type: "OUT", category: "Bahan Baku", amount: 245000, date: today, note: "Pembelian deterjen & parfum" }
+      ];
+
+      state.inventory = [
+        { id: "inv_01", businessId: "biz_ssmart_01", name: "Deterjen Cair Konsentrat", unit: "Liter", stock: 18, minStock: 5, updatedAt: today },
+        { id: "inv_02", businessId: "biz_ssmart_01", name: "Parfum Laundry Sakura", unit: "Liter", stock: 4, minStock: 5, updatedAt: today },
+        { id: "inv_03", businessId: "biz_ssmart_01", name: "Plastik Packing Baju", unit: "Pack", stock: 12, minStock: 3, updatedAt: today }
       ];
     }
 
@@ -843,6 +961,7 @@
           payments: state.payments,
           expenses: state.expenses,
           cashTransactions: state.cashTransactions,
+          inventory: state.inventory,
           statusSettings: state.statusSettings
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -868,6 +987,7 @@
           if (Array.isArray(parsed.payments) && parsed.payments.length) state.payments = parsed.payments;
           if (Array.isArray(parsed.expenses) && parsed.expenses.length) state.expenses = parsed.expenses;
           if (Array.isArray(parsed.cashTransactions) && parsed.cashTransactions.length) state.cashTransactions = parsed.cashTransactions;
+          if (Array.isArray(parsed.inventory) && parsed.inventory.length) state.inventory = parsed.inventory;
           if (parsed.statusSettings) state.statusSettings = Object.assign({}, DEFAULT_STATUS_SETTINGS, parsed.statusSettings);
         }
       } catch (e) {}
@@ -940,7 +1060,7 @@
     async function syncAllCollectionsToCloud() {
       if (!fbDb || !state.firebaseConnected) return;
       await syncGlobalToCloud();
-      const cols = ["businesses", "owners", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions"];
+      const cols = ["businesses", "owners", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions", "inventory"];
       for (const c of cols) {
         const arr = state[c] || [];
         for (const item of arr) {
@@ -977,7 +1097,7 @@
       });
       fbUnsubscribers.push(unsubCfg);
 
-      const listCols = ["businesses", "owners", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions"];
+      const listCols = ["businesses", "owners", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions", "inventory"];
       for (const colName of listCols) {
         const unsub = onSnapshot(getPublicColRef(colName), (snapshot) => {
           state.firebaseConnected = true;
@@ -1051,6 +1171,12 @@
       const biz = getCurrentBusiness();
       const role = state.currentUser?.role;
       return state.cashTransactions.filter(c => role === "SUPER_ADMIN" || c.businessId === biz.id);
+    }
+
+    function getScopedInventory() {
+      const biz = getCurrentBusiness();
+      const role = state.currentUser?.role;
+      return (state.inventory || []).filter(i => role === "SUPER_ADMIN" || i.businessId === biz.id);
     }
 
     function getScopedEmployees() {
@@ -1181,7 +1307,7 @@
             <div class="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-sm space-y-4">
               <div>
                 <h1 class="text-lg font-extrabold text-slate-900">Cek Status Cucian Anda</h1>
-                <p class="text-xs text-slate-500 mt-0.5">Masukkan nomor invoice pada nota atau scan QR Code nota Anda.</p>
+                <p class="text-xs text-slate-500 mt-0.5">Masukkan nomor invoice pada nota atau scan barcode nota Anda.</p>
               </div>
 
               <div class="flex gap-2">
@@ -1212,6 +1338,8 @@
                   </div>
                   <div class="text-xs text-slate-600 space-y-1 border-t border-slate-200 pt-2.5">
                     <div>Masuk: <strong>${escapeHtml(matched.createdAt)}</strong> • Estimasi: <strong>${escapeHtml(matched.estimatedDone)}</strong></div>
+                    ${Number(matched.discountAmount || 0) > 0 ? `<div>Diskon Promo: <strong class="text-emerald-700">-${formatRupiah(matched.discountAmount)}</strong></div>` : ""}
+                    ${Number(matched.deliveryFee || 0) > 0 ? `<div>Biaya Antar-Jemput: <strong>+${formatRupiah(matched.deliveryFee)}</strong></div>` : ""}
                     <div>Total: <strong>${formatRupiah(matched.totalAmount)}</strong> • Dibayar: <strong>${formatRupiah(matched.paidAmount)}</strong> (${escapeHtml(matched.paymentStatus)})</div>
                   </div>
                   <div class="border-t border-slate-200 pt-2.5 space-y-1">
@@ -1319,11 +1447,17 @@
                 </button>
               </div>
 
-              <div class="pt-3 border-t border-slate-100 text-center">
+              <div class="pt-3 border-t border-slate-100 text-center space-y-2">
                 <button type="button" onclick="window.appActions.openPublicPortal('')"
-                  class="text-xs font-semibold theme-primary-text hover:underline">
+                  class="text-xs font-semibold theme-primary-text hover:underline block mx-auto">
                   Lacak Status Cucian Pelanggan (Tanpa Login)
                 </button>
+                ${state.canInstallPwa ? `
+                  <button type="button" onclick="window.appActions.triggerInstallPwa()"
+                    class="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold">
+                    + Install Aplikasi ke Layar Utama
+                  </button>
+                ` : ""}
               </div>
             </div>
           </div>
@@ -1431,6 +1565,7 @@
       const payments = getScopedPayments();
       const expenses = getScopedExpenses();
       const cash = getScopedCash();
+      const lowStockItems = getScopedInventory().filter(i => Number(i.stock || 0) <= Number(i.minStock || 0));
 
       const totalRevenue = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
       const totalExpense = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -1441,6 +1576,18 @@
       return `
         <div class="space-y-5 animate-page">
           ${renderExpiryBannerIfNeeded()}
+
+          ${(role === "OWNER" || role === "ADMIN") && lowStockItems.length > 0 ? `
+            <div class="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-between gap-3 text-xs">
+              <div class="text-rose-800">
+                <strong>Stok Bahan Menipis:</strong> ${lowStockItems.map(i => `${escapeHtml(i.name)} (${i.stock} ${escapeHtml(i.unit)})`).join(", ")}
+              </div>
+              <button type="button" onclick="window.appActions.switchTab('inventory')"
+                class="px-3 py-1.5 rounded-xl bg-rose-600 text-white font-bold shrink-0">
+                Cek Stok
+              </button>
+            </div>
+          ` : ""}
 
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -1517,8 +1664,11 @@
       const customers = getScopedCustomers();
       const selectedCust = customers.find(c => c.id === state.quickCustomerId);
       const selectedMap = selectedCust ? buildCustomerMapData(selectedCust) : { hasLocation: false };
-      const subtotal = state.quickCart.reduce((s, item) => s + Number(item.subtotal || 0), 0);
-      const paidNow = Math.min(subtotal, Math.max(0, Number(state.quickPaidAmount || 0)));
+      const itemsSubtotal = state.quickCart.reduce((s, item) => s + Number(item.subtotal || 0), 0);
+      const discountAmt = Math.max(0, Number(state.quickDiscountAmount || 0));
+      const deliveryAmt = Math.max(0, Number(state.quickDeliveryFee || 0));
+      const grandTotal = Math.max(0, itemsSubtotal - discountAmt + deliveryAmt);
+      const paidNow = Math.min(grandTotal, Math.max(0, Number(state.quickPaidAmount || 0)));
       const payAccounts = Array.isArray(biz.paymentAccounts) && biz.paymentAccounts.length
         ? biz.paymentAccounts
         : [
@@ -1532,7 +1682,7 @@
           <div class="flex items-center justify-between">
             <div>
               <h1 class="text-xl font-bold app-text-main">Kasir Quick Order</h1>
-              <p class="text-xs app-text-muted">Buat transaksi laundry multi-layanan dan nota pelanggan</p>
+              <p class="text-xs app-text-muted">Buat transaksi laundry multi-layanan, diskon, ongkir & nota pelanggan</p>
             </div>
           </div>
 
@@ -1642,8 +1792,21 @@
               </div>
 
               <div class="border-t border-slate-100 pt-3 space-y-2.5 text-xs">
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Diskon Promo (Rp)</label>
+                    <input type="number" min="0" value="${discountAmt}" oninput="window.appActions.setQuickDiscount(this.value)"
+                      class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs" />
+                  </div>
+                  <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Biaya Antar-Jemput</label>
+                    <input type="number" min="0" value="${deliveryAmt}" oninput="window.appActions.setQuickDelivery(this.value)"
+                      class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs" />
+                  </div>
+                </div>
+
                 ${state.quickCart.length > 0 ? `
-                  <div class="p-3 rounded-xl bg-blue-50/60 border border-blue-100 space-y-1.5">
+                  <div id="pos-cost-summary-box" class="p-3 rounded-xl bg-blue-50/60 border border-blue-100 space-y-1.5">
                     <div class="text-[11px] font-bold text-blue-900">Rincian Biaya Layanan</div>
                     ${state.quickCart.map(item => `
                       <div class="flex items-center justify-between gap-2 text-[11px] text-slate-700">
@@ -1651,15 +1814,27 @@
                         <span class="font-semibold shrink-0">${formatRupiah(item.subtotal)}</span>
                       </div>
                     `).join("")}
+                    ${discountAmt > 0 ? `
+                      <div class="flex items-center justify-between text-[11px] text-emerald-700">
+                        <span>Diskon Promo</span>
+                        <span class="font-semibold">-${formatRupiah(discountAmt)}</span>
+                      </div>
+                    ` : ""}
+                    ${deliveryAmt > 0 ? `
+                      <div class="flex items-center justify-between text-[11px] text-slate-700">
+                        <span>Biaya Antar-Jemput</span>
+                        <span class="font-semibold">+${formatRupiah(deliveryAmt)}</span>
+                      </div>
+                    ` : ""}
                     <div class="pt-1.5 border-t border-blue-200/80 flex justify-between font-bold text-slate-900 text-sm">
                       <span>Total Biaya</span>
-                      <span class="theme-primary-text">${formatRupiah(subtotal)}</span>
+                      <span class="theme-primary-text">${formatRupiah(grandTotal)}</span>
                     </div>
                   </div>
                 ` : `
                   <div class="flex justify-between font-bold text-slate-900 text-sm">
                     <span>Total Tagihan</span>
-                    <span>${formatRupiah(subtotal)}</span>
+                    <span>${formatRupiah(grandTotal)}</span>
                   </div>
                 `}
                 <div>
@@ -1763,6 +1938,8 @@
               <div class="text-xs text-slate-600 space-y-1">
                 <div>Telepon: <strong>${escapeHtml(focused.customerPhone || "-")}</strong> • Masuk: <strong>${escapeHtml(focused.createdAt)}</strong></div>
                 <div>Alamat Antar: <strong>${escapeHtml(focusedCust?.address || focused.customerAddress || "-")}</strong></div>
+                ${Number(focused.discountAmount || 0) > 0 ? `<div>Diskon Promo: <strong class="text-emerald-700">-${formatRupiah(focused.discountAmount)}</strong></div>` : ""}
+                ${Number(focused.deliveryFee || 0) > 0 ? `<div>Biaya Antar-Jemput: <strong>+${formatRupiah(focused.deliveryFee)}</strong></div>` : ""}
                 <div>Total: <strong>${formatRupiah(focused.totalAmount)}</strong> • Terbayar: <strong>${formatRupiah(focused.paidAmount)}</strong> (${escapeHtml(focused.paymentStatus)})</div>
                 ${focused.notes ? `<div>Catatan: <strong>${escapeHtml(focused.notes)}</strong></div>` : ""}
               </div>
@@ -1795,6 +1972,7 @@
                   </div>
                 `).join("")}
               </div>
+
               <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
                 <label class="text-xs font-semibold text-slate-700">Update Status:</label>
                 <div class="w-44">
@@ -1809,6 +1987,10 @@
                     onSelectFn: "updateFocusedOrderStatus"
                   })}
                 </div>
+                <a href="${escapeHtml(buildOrderReadyWaLink(focused))}" target="_blank" rel="noopener noreferrer"
+                  class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold">
+                  Kabari WA Siap Ambil
+                </a>
                 <button type="button" onclick="window.appActions.openReceiptModal('${escapeHtml(focused.id)}')"
                   class="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold">
                   Nota & Share WA
@@ -1820,6 +2002,20 @@
                   </button>
                 ` : ""}
               </div>
+
+              ${Array.isArray(focused.activityLogs) && focused.activityLogs.length > 0 ? `
+                <div class="pt-3 border-t border-slate-100 space-y-1.5">
+                  <div class="text-[11px] font-bold text-slate-700">Riwayat Aktivitas Staf (Audit Log)</div>
+                  <div class="space-y-1">
+                    ${focused.activityLogs.map(log => `
+                      <div class="text-[11px] text-slate-500 flex items-center justify-between gap-2 bg-slate-50 px-3 py-1.5 rounded-xl">
+                        <span><strong>${escapeHtml(log.actor)}</strong> — ${escapeHtml(log.action)}</span>
+                        <span class="font-mono text-[10px] shrink-0">${escapeHtml(log.at)}</span>
+                      </div>
+                    `).join("")}
+                  </div>
+                </div>
+              ` : ""}
             </div>
           ` : list.length === 0 ? `
             <div class="surface-card p-8 rounded-2xl border border-slate-200/80 text-center text-xs app-text-muted">
@@ -1843,6 +2039,12 @@
                       ${oMap.hasLocation ? `<div class="text-[11px] text-slate-500 truncate mt-0.5">${escapeHtml(oCust?.address || o.customerAddress || "Titik Maps tersimpan")}</div>` : ""}
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0">
+                      ${normSt === "READY" ? `
+                        <a href="${escapeHtml(buildOrderReadyWaLink(o))}" target="_blank" rel="noopener noreferrer" title="Kabari Pelanggan via WA"
+                          class="px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold">
+                          WA
+                        </a>
+                      ` : ""}
                       ${oMap.hasLocation ? `
                         <a href="${escapeHtml(oMap.externalUrl)}" target="_blank" rel="noopener noreferrer" title="Perluas ke Google Maps"
                           class="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold">
@@ -1977,6 +2179,62 @@
       `;
     }
 
+    function renderInventoryView() {
+      const items = getScopedInventory();
+      return `
+        <div class="space-y-6 animate-page">
+          ${renderExpiryBannerIfNeeded()}
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-extrabold text-slate-900">Stok Bahan Baku</h1>
+              <p class="text-xs text-slate-500">Pantau sisa deterjen, parfum, softener & plastik packing</p>
+            </div>
+            <button type="button" onclick="window.appActions.openInventoryFormModal(null)"
+              class="px-4 py-2 rounded-xl theme-primary-bg text-white text-xs font-bold inline-flex items-center gap-1.5">
+              ${renderIcon("plus", "w-4 h-4", true)}
+              <span>Tambah Bahan</span>
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            ${items.map(it => {
+              const isLow = Number(it.stock || 0) <= Number(it.minStock || 0);
+              return `
+                <div class="surface-card p-4 rounded-2xl border ${isLow ? "border-rose-300 bg-rose-50/30" : "border-slate-200/80"} space-y-3">
+                  <div class="flex items-start justify-between gap-2">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="font-bold text-sm text-slate-900">${escapeHtml(it.name)}</span>
+                        ${isLow ? `<span class="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">Menipis</span>` : ""}
+                      </div>
+                      <div class="text-xs text-slate-500 mt-0.5">Batas minimum: ${it.minStock} ${escapeHtml(it.unit)}</div>
+                    </div>
+                    <div class="text-right">
+                      <div class="text-lg font-extrabold ${isLow ? "text-rose-600" : "text-slate-900"}">${it.stock} <span class="text-xs font-semibold">${escapeHtml(it.unit)}</span></div>
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                    <div class="flex items-center gap-1.5">
+                      <button type="button" onclick="window.appActions.adjustInventoryStock('${escapeHtml(it.id)}', -1)"
+                        class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-slate-800">-1</button>
+                      <button type="button" onclick="window.appActions.adjustInventoryStock('${escapeHtml(it.id)}', 1)"
+                        class="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 font-bold text-emerald-700">+1</button>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <button type="button" onclick="window.appActions.openInventoryFormModal('${escapeHtml(it.id)}')"
+                        class="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-semibold">Edit</button>
+                      <button type="button" onclick="window.appActions.deleteInventoryItem('${escapeHtml(it.id)}')"
+                        class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 font-semibold">Hapus</button>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </div>
+      `;
+    }
+
     function renderPaymentsView() {
       const orders = getScopedOrders().filter(o => {
         if (state.paymentFilter === "UNPAID") return o.paymentStatus !== "PAID";
@@ -2076,18 +2334,44 @@
     }
 
     function renderReportsView() {
-      const payments = getScopedPayments();
-      const expenses = getScopedExpenses();
-      const cash = getScopedCash();
+      const startD = state.reportStartDate || "";
+      const endD = state.reportEndDate || "";
+      const withinDate = (dateStr) => {
+        const d = String(dateStr || "").slice(0, 10);
+        if (startD && d < startD) return false;
+        if (endD && d > endD) return false;
+        return true;
+      };
+
+      const payments = getScopedPayments().filter(p => withinDate(p.date));
+      const expenses = getScopedExpenses().filter(e => withinDate(e.date));
+      const cash = getScopedCash().filter(c => withinDate(c.date));
       const totalIn = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
       const totalOut = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
 
       return `
         <div class="space-y-6 animate-page">
           ${renderExpiryBannerIfNeeded()}
-          <div>
-            <h1 class="text-xl font-extrabold text-slate-900">Laporan Keuangan & Buku Kas</h1>
-            <p class="text-xs text-slate-500">Rekap arus kas masuk, pengeluaran, dan laba bersih cabang</p>
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-extrabold text-slate-900">Laporan Keuangan & Buku Kas</h1>
+              <p class="text-xs text-slate-500">Filter tanggal & export laporan arus kas ke Excel (.csv)</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <input type="date" value="${escapeHtml(startD)}" onchange="window.appActions.setReportDateRange(this.value, '${escapeHtml(endD)}')"
+                class="px-3 py-2 rounded-xl border border-slate-200 bg-white" />
+              <span class="text-slate-400">s/d</span>
+              <input type="date" value="${escapeHtml(endD)}" onchange="window.appActions.setReportDateRange('${escapeHtml(startD)}', this.value)"
+                class="px-3 py-2 rounded-xl border border-slate-200 bg-white" />
+              ${(startD || endD) ? `
+                <button type="button" onclick="window.appActions.setReportDateRange('', '')"
+                  class="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 font-semibold">Reset</button>
+              ` : ""}
+              <button type="button" onclick="window.appActions.exportFinancialCsv()"
+                class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+                Download Excel (.csv)
+              </button>
+            </div>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -2106,8 +2390,8 @@
           </div>
 
           <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-2.5">
-            <div class="font-bold text-sm text-slate-900">Mutasi Buku Kas</div>
-            ${cash.map(c => `
+            <div class="font-bold text-sm text-slate-900">Mutasi Buku Kas (${cash.length} transaksi)</div>
+            ${cash.length === 0 ? `<div class="text-xs text-slate-400 py-4 text-center">Tidak ada transaksi pada rentang tanggal ini.</div>` : cash.map(c => `
               <div class="p-3 rounded-xl bg-slate-50 flex items-center justify-between text-xs">
                 <div>
                   <span class="font-bold ${c.type === "IN" ? "text-emerald-700" : "text-rose-700"}">${c.type === "IN" ? "MASUK" : "KELUAR"}</span>
@@ -2681,6 +2965,8 @@
           return renderCustomersView();
         case "payments":
           return renderPaymentsView();
+        case "inventory":
+          return renderInventoryView();
         case "expenses":
           return renderExpensesView();
         case "reports":
@@ -2737,6 +3023,7 @@
             { id: "scanner", label: "Scan Barcode Balok" },
             ...(role !== "OPERATOR" ? [{ id: "customers", label: "Pelanggan" }, { id: "payments", label: "Pembayaran & Piutang" }] : []),
             ...(role === "OWNER" || role === "ADMIN" ? [
+              { id: "inventory", label: "Stok Bahan Baku" },
               { id: "expenses", label: "Pengeluaran" },
               { id: "reports", label: "Laporan Keuangan" },
               { id: "services", label: "Layanan & Tarif" },
@@ -2804,6 +3091,13 @@
             <div class="text-xs font-bold app-text-main truncate">${escapeHtml(state.currentUser.name)}</div>
             <div class="text-[11px] app-text-muted truncate">${escapeHtml(state.currentUser.email)}</div>
           </div>
+          ${state.canInstallPwa ? `
+            <button type="button" onclick="window.appActions.triggerInstallPwa()"
+              class="w-full px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold text-left flex items-center gap-2">
+              ${renderIcon("plus", "w-4 h-4")}
+              <span>Install Aplikasi</span>
+            </button>
+          ` : ""}
           <button type="button" onclick="window.appActions.logoutUser()"
             class="w-full px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold text-left flex items-center gap-2">
             ${renderIcon("logout", "w-4 h-4", true)}
@@ -2874,6 +3168,20 @@
 
     window.appActions = {
       closeModal,
+
+      async triggerInstallPwa() {
+        if (!deferredInstallPrompt) {
+          showToast("Gunakan menu browser 'Tambahkan ke layar utama'", "error");
+          return;
+        }
+        deferredInstallPrompt.prompt();
+        const choice = await deferredInstallPrompt.userChoice;
+        if (choice && choice.outcome === "accepted") {
+          state.canInstallPwa = false;
+          deferredInstallPrompt = null;
+          renderApp();
+        }
+      },
 
       toggleMobileSidebar(forceOpen) {
         state.mobileSidebarOpen = typeof forceOpen === "boolean" ? forceOpen : !state.mobileSidebarOpen;
@@ -3135,23 +3443,12 @@
         renderApp();
       },
 
-      updateCartItemQty(idx, rawQty) {
-        const item = state.quickCart[idx];
-        if (!item) return;
-        const parsed = parseFloat(rawQty);
-        const validQty = isNaN(parsed) || parsed < 0 ? 0 : Math.round(parsed * 100) / 100;
-        item.qty = validQty;
-        item.subtotal = Math.round(validQty * Number(item.price || 0));
-
-        const subtotal = state.quickCart.reduce((s, it) => s + Number(it.subtotal || 0), 0);
-        const cardEl = document.activeElement?.closest(".p-3.rounded-2xl");
-        if (cardEl) {
-          const breakdownSpan = cardEl.querySelector(".border-t span.text-slate-500");
-          const subSpan = cardEl.querySelector(".border-t span.font-bold");
-          if (breakdownSpan) breakdownSpan.textContent = `${item.qty} ${item.unit} × ${formatRupiah(item.price)}`;
-          if (subSpan) subSpan.textContent = formatRupiah(item.subtotal);
-        }
-        const summaryBox = document.querySelector(".bg-blue-50\\/60");
+      updatePosSummaryDom() {
+        const itemsSubtotal = state.quickCart.reduce((s, it) => s + Number(it.subtotal || 0), 0);
+        const discountAmt = Math.max(0, Number(state.quickDiscountAmount || 0));
+        const deliveryAmt = Math.max(0, Number(state.quickDeliveryFee || 0));
+        const grandTotal = Math.max(0, itemsSubtotal - discountAmt + deliveryAmt);
+        const summaryBox = document.getElementById("pos-cost-summary-box");
         if (summaryBox) {
           summaryBox.innerHTML = `
             <div class="text-[11px] font-bold text-blue-900">Rincian Biaya Layanan</div>
@@ -3161,12 +3458,52 @@
                 <span class="font-semibold shrink-0">${formatRupiah(it.subtotal)}</span>
               </div>
             `).join("")}
+            ${discountAmt > 0 ? `
+              <div class="flex items-center justify-between text-[11px] text-emerald-700">
+                <span>Diskon Promo</span>
+                <span class="font-semibold">-${formatRupiah(discountAmt)}</span>
+              </div>
+            ` : ""}
+            ${deliveryAmt > 0 ? `
+              <div class="flex items-center justify-between text-[11px] text-slate-700">
+                <span>Biaya Antar-Jemput</span>
+                <span class="font-semibold">+${formatRupiah(deliveryAmt)}</span>
+              </div>
+            ` : ""}
             <div class="pt-1.5 border-t border-blue-200/80 flex justify-between font-bold text-slate-900 text-sm">
               <span>Total Biaya</span>
-              <span class="theme-primary-text">${formatRupiah(subtotal)}</span>
+              <span class="theme-primary-text">${formatRupiah(grandTotal)}</span>
             </div>
           `;
         }
+      },
+
+      updateCartItemQty(idx, rawQty) {
+        const item = state.quickCart[idx];
+        if (!item) return;
+        const parsed = parseFloat(rawQty);
+        const validQty = isNaN(parsed) || parsed < 0 ? 0 : Math.round(parsed * 100) / 100;
+        item.qty = validQty;
+        item.subtotal = Math.round(validQty * Number(item.price || 0));
+
+        const cardEl = document.activeElement?.closest(".p-3.rounded-2xl");
+        if (cardEl) {
+          const breakdownSpan = cardEl.querySelector(".border-t span.text-slate-500");
+          const subSpan = cardEl.querySelector(".border-t span.font-bold");
+          if (breakdownSpan) breakdownSpan.textContent = `${item.qty} ${item.unit} × ${formatRupiah(item.price)}`;
+          if (subSpan) subSpan.textContent = formatRupiah(item.subtotal);
+        }
+        this.updatePosSummaryDom();
+      },
+
+      setQuickDiscount(val) {
+        state.quickDiscountAmount = Math.max(0, Number(val || 0));
+        this.updatePosSummaryDom();
+      },
+
+      setQuickDelivery(val) {
+        state.quickDeliveryFee = Math.max(0, Number(val || 0));
+        this.updatePosSummaryDom();
       },
 
       removeCartItem(idx) {
@@ -3195,11 +3532,15 @@
         const cust = state.customers.find(c => c.id === state.quickCustomerId);
         const biz = getCurrentBusiness();
         const now = getJakartaNow();
-        const totalAmount = state.quickCart.reduce((s, i) => s + Number(i.subtotal || 0), 0);
+        const subtotalAmount = state.quickCart.reduce((s, i) => s + Number(i.subtotal || 0), 0);
+        const discountAmount = Math.max(0, Number(state.quickDiscountAmount || 0));
+        const deliveryFee = Math.max(0, Number(state.quickDeliveryFee || 0));
+        const totalAmount = Math.max(0, subtotalAmount - discountAmount + deliveryFee);
         const paidAmount = Math.min(totalAmount, Math.max(0, Number(state.quickPaidAmount || 0)));
         const paymentStatus = paidAmount >= totalAmount ? "PAID" : (paidAmount > 0 ? "PARTIAL" : "UNPAID");
         const seq = String(state.orders.length + 1).padStart(4, "0");
         const invoiceNumber = `SS-${now.dateStr.replace(/-/g, "").slice(2)}-${seq}`;
+        const actorLabel = state.currentUser ? `${state.currentUser.name} (${state.currentUser.role})` : "Kasir";
 
         const orderRec = {
           id: "ord_" + Date.now(),
@@ -3213,6 +3554,9 @@
           customerLng: cust.lng || "",
           customerMapsUrl: cust.mapsUrl || "",
           items: JSON.parse(JSON.stringify(state.quickCart)),
+          subtotalAmount,
+          discountAmount,
+          deliveryFee,
           totalAmount,
           paidAmount,
           paymentStatus,
@@ -3220,7 +3564,10 @@
           status: "RECEIVED",
           notes: state.quickNotes,
           createdAt: `${now.dateStr} ${now.timeStr}`,
-          estimatedDone: addDaysToDateStr(now.dateStr, 2)
+          estimatedDone: addDaysToDateStr(now.dateStr, 2),
+          activityLogs: [
+            { at: `${now.dateStr} ${now.timeStr}`, actor: actorLabel, action: "Order dibuat (Diterima)" }
+          ]
         };
 
         state.orders.unshift(orderRec);
@@ -3256,10 +3603,121 @@
         }
 
         state.quickCart = [];
+        state.quickDiscountAmount = 0;
+        state.quickDeliveryFee = 0;
         state.quickPaidAmount = 0;
         state.quickNotes = "";
         showToast(`Order ${invoiceNumber} berhasil dibuat`);
         this.openReceiptModal(orderRec.id);
+      },
+
+      printThermalReceipt(orderId) {
+        const ord = state.orders.find(o => o.id === orderId);
+        if (!ord) return;
+        const biz = state.businesses.find(b => b.id === ord.businessId) || getCurrentBusiness();
+        const printArea = document.getElementById("thermal-print-area");
+        if (!printArea) {
+          window.print();
+          return;
+        }
+
+        const sisa = Math.max(0, Number(ord.totalAmount || 0) - Number(ord.paidAmount || 0));
+        const methodLabel = String(ord.paymentMethod || "");
+        const matchedAcc = (biz.paymentAccounts || []).find(a => String(a.label || "").toLowerCase() === methodLabel.toLowerCase());
+        const hasTransferAccount = matchedAcc && matchedAcc.accountNumber && matchedAcc.accountNumber !== "-" && matchedAcc.accountNumber !== "Scan QRIS";
+
+        printArea.innerHTML = `
+          <div style="text-align:center; border-bottom:1px dashed #000; padding-bottom:6px; margin-bottom:6px;">
+            ${biz.logoUrl ? `<img src="${escapeHtml(biz.logoUrl)}" alt="Logo" style="width:42px; height:42px; object-fit:contain; margin:0 auto 4px auto;" />` : ""}
+            <div style="font-weight:700; font-size:13px;">${escapeHtml(biz.name)}</div>
+            ${biz.address ? `<div style="font-size:10px;">${escapeHtml(biz.address)}</div>` : ""}
+            ${biz.phone ? `<div style="font-size:10px;">WA: ${escapeHtml(biz.phone)}</div>` : ""}
+          </div>
+
+          <div style="border-bottom:1px dashed #000; padding-bottom:6px; margin-bottom:6px; font-size:10.5px;">
+            <div>No. Nota : <strong>${escapeHtml(ord.invoiceNumber)}</strong></div>
+            <div>Tanggal  : ${escapeHtml(ord.createdAt)}</div>
+            <div>Estimasi : ${escapeHtml(ord.estimatedDone || "-")}</div>
+            <div>Pelanggan: <strong>${escapeHtml(ord.customerName)}</strong></div>
+            ${ord.customerPhone ? `<div>No. HP   : ${escapeHtml(ord.customerPhone)}</div>` : ""}
+            <div>Metode   : ${escapeHtml(ord.paymentMethod || "-")} (${escapeHtml(ord.paymentStatus)})</div>
+          </div>
+
+          <div style="border-bottom:1px dashed #000; padding-bottom:6px; margin-bottom:6px;">
+            ${(ord.items || []).map(it => `
+              <div style="margin-bottom:4px;">
+                <div style="font-weight:700;">${escapeHtml(it.name)}</div>
+                <div style="display:flex; justify-content:space-between;">
+                  <span>${it.qty} ${escapeHtml(it.unit)} x ${formatRupiah(it.price)}</span>
+                  <strong>${formatRupiah(it.subtotal)}</strong>
+                </div>
+              </div>
+            `).join("")}
+            ${Number(ord.discountAmount || 0) > 0 ? `
+              <div style="display:flex; justify-content:space-between; font-size:10px;">
+                <span>Diskon Promo</span>
+                <span>-${formatRupiah(ord.discountAmount)}</span>
+              </div>
+            ` : ""}
+            ${Number(ord.deliveryFee || 0) > 0 ? `
+              <div style="display:flex; justify-content:space-between; font-size:10px;">
+                <span>Biaya Antar-Jemput</span>
+                <span>+${formatRupiah(ord.deliveryFee)}</span>
+              </div>
+            ` : ""}
+          </div>
+
+          <div style="border-bottom:1px dashed #000; padding-bottom:6px; margin-bottom:6px;">
+            <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700;">
+              <span>TOTAL</span>
+              <span>${formatRupiah(ord.totalAmount)}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:10.5px;">
+              <span>Dibayar</span>
+              <span>${formatRupiah(ord.paidAmount)}</span>
+            </div>
+            ${sisa > 0 ? `
+              <div style="display:flex; justify-content:space-between; font-size:10.5px; font-weight:700;">
+                <span>Sisa Tagihan</span>
+                <span>${formatRupiah(sisa)}</span>
+              </div>
+            ` : ""}
+            ${ord.notes ? `<div style="margin-top:4px; font-size:10px;">Catatan: ${escapeHtml(ord.notes)}</div>` : ""}
+          </div>
+
+          ${hasTransferAccount ? `
+            <div style="border-bottom:1px dashed #000; padding-bottom:6px; margin-bottom:6px; text-align:center; font-size:10px;">
+              <div>Transfer: ${escapeHtml(matchedAcc.label)}</div>
+              <div style="font-weight:700; font-size:11px;">${escapeHtml(matchedAcc.accountNumber)}</div>
+              <div>a.n ${escapeHtml(matchedAcc.accountHolder)}</div>
+            </div>
+          ` : ""}
+
+          <div style="text-align:center; margin-top:6px;">
+            <div style="font-size:9.5px; font-weight:700; margin-bottom:2px;">Scan Barcode Lacak Progress</div>
+            <svg id="thermal-linear-barcode" style="max-width:100%; height:42px; margin:0 auto;"></svg>
+            ${biz.receiptFooter ? `<div style="font-size:10px; margin-top:4px;">${escapeHtml(biz.receiptFooter)}</div>` : ""}
+          </div>
+        `;
+
+        const svgEl = document.getElementById("thermal-linear-barcode");
+        if (svgEl && window.JsBarcode) {
+          try {
+            window.JsBarcode(svgEl, String(ord.invoiceNumber || ""), {
+              format: "CODE128",
+              lineColor: "#000000",
+              width: 1.5,
+              height: 36,
+              displayValue: true,
+              fontSize: 10,
+              margin: 0
+            });
+          } catch (e) {}
+        }
+
+        setTimeout(() => {
+          window.print();
+        }, 80);
       },
 
       openReceiptModal(orderId) {
@@ -3293,12 +3751,16 @@
         const waPhoneRaw = String(ord.customerPhone || "").replace(/\D/g, "");
         const waPhone = waPhoneRaw.startsWith("0") ? ("62" + waPhoneRaw.slice(1)) : waPhoneRaw;
         const itemLines = (ord.items || []).map(it => `- ${it.name} (${it.qty} ${it.unit}): ${formatRupiah(it.subtotal)}`).join("\n");
+        const extraLines =
+          (Number(ord.discountAmount || 0) > 0 ? `Diskon Promo: -${formatRupiah(ord.discountAmount)}\n` : "") +
+          (Number(ord.deliveryFee || 0) > 0 ? `Biaya Antar-Jemput: +${formatRupiah(ord.deliveryFee)}\n` : "");
+
         const waText = encodeURIComponent(
           `Halo *${ord.customerName}*,\nBerikut nota laundry Anda di *${biz.name}*:\n\n` +
           `No. Invoice: *${ord.invoiceNumber}*\n` +
           `Tanggal: ${ord.createdAt}\n` +
           `Estimasi Selesai: ${ord.estimatedDone}\n\n` +
-          `Rincian:\n${itemLines}\n\n` +
+          `Rincian:\n${itemLines}\n${extraLines}\n` +
           `Total: *${formatRupiah(ord.totalAmount)}*\n` +
           `Terbayar: *${formatRupiah(ord.paidAmount)}* (${ord.paymentStatus})\n\n` +
           `${paymentDetailWaLine}\n` +
@@ -3326,6 +3788,18 @@
                   <span class="font-semibold">${formatRupiah(it.subtotal)}</span>
                 </div>
               `).join("")}
+              ${Number(ord.discountAmount || 0) > 0 ? `
+                <div class="flex justify-between text-emerald-700">
+                  <span>Diskon Promo</span>
+                  <span class="font-semibold">-${formatRupiah(ord.discountAmount)}</span>
+                </div>
+              ` : ""}
+              ${Number(ord.deliveryFee || 0) > 0 ? `
+                <div class="flex justify-between text-slate-700">
+                  <span>Biaya Antar-Jemput</span>
+                  <span class="font-semibold">+${formatRupiah(ord.deliveryFee)}</span>
+                </div>
+              ` : ""}
             </div>
             <div class="flex justify-between font-bold text-sm">
               <span>Total</span>
@@ -3371,7 +3845,7 @@
             </div>
             <div class="text-center text-slate-500 italic">${escapeHtml(biz.receiptFooter || "")}</div>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
-              <button type="button" onclick="window.print()" class="py-2.5 rounded-xl theme-primary-bg text-white font-semibold">Cetak Nota</button>
+              <button type="button" onclick="window.appActions.printThermalReceipt('${escapeHtml(ord.id)}')" class="py-2.5 rounded-xl theme-primary-bg text-white font-semibold">Cetak Nota</button>
               <a href="${waHref}" target="_blank" rel="noopener noreferrer"
                 class="py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-center">
                 Share via WA
@@ -3411,10 +3885,155 @@
       updateOrderStatus(orderId, newStatus) {
         const ord = state.orders.find(o => o.id === orderId);
         if (!ord) return;
-        ord.status = normalizeOrderStatus(newStatus);
+        const normalized = normalizeOrderStatus(newStatus);
+        const label = state.statusSettings[normalized]?.label || normalized;
+        const now = getJakartaNow();
+        const actorLabel = state.currentUser ? `${state.currentUser.name} (${state.currentUser.role})` : "Staf";
+        ord.status = normalized;
+        if (!Array.isArray(ord.activityLogs)) ord.activityLogs = [];
+        ord.activityLogs.push({
+          at: `${now.dateStr} ${now.timeStr}`,
+          actor: actorLabel,
+          action: `Status diubah menjadi ${label}`
+        });
         saveStateToStorage();
         syncRecordToCloud("orders", ord);
-        showToast("Status order diperbarui");
+        showToast(normalized === "READY" ? "Status Siap Diambil! Klik tombol WA untuk kabari pelanggan." : "Status order diperbarui");
+        renderApp();
+      },
+
+      setReportDateRange(startStr, endStr) {
+        state.reportStartDate = startStr || "";
+        state.reportEndDate = endStr || "";
+        renderApp();
+      },
+
+      exportFinancialCsv() {
+        const startD = state.reportStartDate || "";
+        const endD = state.reportEndDate || "";
+        const withinDate = (dateStr) => {
+          const d = String(dateStr || "").slice(0, 10);
+          if (startD && d < startD) return false;
+          if (endD && d > endD) return false;
+          return true;
+        };
+        const cash = getScopedCash().filter(c => withinDate(c.date));
+        const rows = [
+          ["Tanggal", "Tipe", "Kategori", "Keterangan", "Nominal (Rp)"]
+        ];
+        cash.forEach(c => {
+          rows.push([
+            c.date || "",
+            c.type === "IN" ? "MASUK" : "KELUAR",
+            c.category || "",
+            String(c.note || "").replace(/"/g, '""'),
+            Number(c.amount || 0)
+          ]);
+        });
+        const csvContent = rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+        const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const slug = String(getCurrentBusiness().name || "cabang").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+        a.href = url;
+        a.download = `laporan_keuangan_${slug}_${getJakartaNow().dateStr}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 100);
+        showToast("Laporan keuangan Excel (.csv) diunduh");
+      },
+
+      openInventoryFormModal(itemId = null) {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") return;
+        const bizId = getCurrentBusiness().id;
+        const item = itemId ? (state.inventory || []).find(i => i.id === itemId && i.businessId === bizId) : null;
+        openModal(`
+          <div class="space-y-3.5 text-xs">
+            <div class="font-extrabold text-base text-slate-900">${item ? "Edit Stok Bahan Baku" : "Tambah Bahan Baku"}</div>
+            <div>
+              <label class="block font-semibold text-slate-700 mb-1">Nama Bahan</label>
+              <input type="text" id="inv-name" value="${escapeHtml(item?.name || "")}" placeholder="Contoh: Deterjen Cair / Parfum" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200" />
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Sisa Stok</label>
+                <input type="number" step="0.5" id="inv-stock" value="${item ? Number(item.stock) : 10}" class="w-full px-3 py-2.5 rounded-xl border border-slate-200" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Min. Alert</label>
+                <input type="number" step="0.5" id="inv-min" value="${item ? Number(item.minStock) : 3}" class="w-full px-3 py-2.5 rounded-xl border border-slate-200" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-700 mb-1">Satuan</label>
+                <input type="text" id="inv-unit" value="${escapeHtml(item?.unit || "Liter")}" placeholder="Liter / Pack" class="w-full px-3 py-2.5 rounded-xl border border-slate-200" />
+              </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+              <button type="button" onclick="window.appActions.closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 font-bold">Batal</button>
+              <button type="button" onclick="window.appActions.saveInventoryItem('${escapeHtml(item?.id || "")}')" class="px-4 py-2 rounded-xl theme-primary-bg text-white font-bold">Simpan</button>
+            </div>
+          </div>
+        `);
+      },
+
+      saveInventoryItem(existingId = "") {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") return;
+        const name = (document.getElementById("inv-name")?.value || "").trim();
+        const stock = Math.max(0, Number(document.getElementById("inv-stock")?.value || 0));
+        const minStock = Math.max(0, Number(document.getElementById("inv-min")?.value || 0));
+        const unit = (document.getElementById("inv-unit")?.value || "Liter").trim();
+        if (!name) {
+          showToast("Nama bahan wajib diisi", "error");
+          return;
+        }
+        const bizId = getCurrentBusiness().id;
+        if (!Array.isArray(state.inventory)) state.inventory = [];
+        const existing = existingId ? state.inventory.find(i => i.id === existingId && i.businessId === bizId) : null;
+        const rec = {
+          id: existing ? existing.id : ("inv_" + Date.now()),
+          businessId: bizId,
+          name,
+          stock,
+          minStock,
+          unit,
+          updatedAt: getJakartaNow().dateStr
+        };
+        if (existing) {
+          state.inventory = state.inventory.map(i => i.id === rec.id ? rec : i);
+        } else {
+          state.inventory.push(rec);
+        }
+        saveStateToStorage();
+        syncRecordToCloud("inventory", rec);
+        closeModal();
+        showToast("Stok bahan baku disimpan");
+        renderApp();
+      },
+
+      adjustInventoryStock(itemId, delta) {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") return;
+        const item = (state.inventory || []).find(i => i.id === itemId);
+        if (!item) return;
+        item.stock = Math.max(0, Math.round((Number(item.stock || 0) + Number(delta || 0)) * 100) / 100);
+        item.updatedAt = getJakartaNow().dateStr;
+        saveStateToStorage();
+        syncRecordToCloud("inventory", item);
+        renderApp();
+      },
+
+      deleteInventoryItem(itemId) {
+        const role = state.currentUser?.role;
+        if (role !== "ADMIN" && role !== "OWNER") return;
+        state.inventory = (state.inventory || []).filter(i => i.id !== itemId);
+        saveStateToStorage();
+        deleteRecordFromCloud("inventory", itemId);
+        showToast("Item stok dihapus");
         renderApp();
       },
 
@@ -3426,9 +4045,16 @@
         if (!ord) return;
         const sisa = Math.max(0, Number(ord.totalAmount) - Number(ord.paidAmount));
         if (sisa <= 0) return;
+        const now = getJakartaNow();
+        const actorLabel = state.currentUser ? `${state.currentUser.name} (${state.currentUser.role})` : "Kasir";
         ord.paidAmount = Number(ord.totalAmount);
         ord.paymentStatus = "PAID";
-        const now = getJakartaNow();
+        if (!Array.isArray(ord.activityLogs)) ord.activityLogs = [];
+        ord.activityLogs.push({
+          at: `${now.dateStr} ${now.timeStr}`,
+          actor: actorLabel,
+          action: `Pelunasan sisa tagihan (${formatRupiah(sisa)})`
+        });
         const payRec = { id: "pay_" + Date.now(), businessId: ord.businessId, orderId: ord.id, invoiceNumber: ord.invoiceNumber, customerName: ord.customerName, amount: sisa, method: ord.paymentMethod || "CASH", date: now.dateStr, note: "Pelunasan" };
         const cashRec = { id: "csh_" + Date.now(), businessId: ord.businessId, type: "IN", category: "Pelunasan Order", amount: sisa, date: now.dateStr, note: `Pelunasan ${ord.invoiceNumber}` };
         state.payments.unshift(payRec);
@@ -4379,7 +5005,8 @@
             orders: state.orders,
             payments: state.payments,
             expenses: state.expenses,
-            cashTransactions: state.cashTransactions
+            cashTransactions: state.cashTransactions,
+            inventory: state.inventory
           };
           fileName = `backup_full_platform_${now.dateStr}.json`;
         } else {
@@ -4396,7 +5023,8 @@
             orders: state.orders.filter(o => ownedIds.includes(o.businessId)),
             payments: state.payments.filter(p => ownedIds.includes(p.businessId)),
             expenses: state.expenses.filter(e => ownedIds.includes(e.businessId)),
-            cashTransactions: state.cashTransactions.filter(c => ownedIds.includes(c.businessId))
+            cashTransactions: state.cashTransactions.filter(c => ownedIds.includes(c.businessId)),
+            inventory: state.inventory.filter(i => ownedIds.includes(i.businessId))
           };
           const slug = String(getCurrentBusiness().name || "cabang").toLowerCase().replace(/[^a-z0-9]+/g, "_");
           fileName = `backup_${slug}_${now.dateStr}.json`;
@@ -4432,7 +5060,7 @@
               if (cfg.roleGuides) state.roleGuides = Object.assign({}, state.roleGuides, cfg.roleGuides);
               if (cfg.statusSettings) state.statusSettings = Object.assign({}, DEFAULT_STATUS_SETTINGS, cfg.statusSettings);
             }
-            const cols = ["businesses", "owners", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions"];
+            const cols = ["businesses", "owners", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions", "inventory"];
             for (const c of cols) {
               if (Array.isArray(parsed[c])) {
                 state[c] = parsed[c];
@@ -4630,6 +5258,12 @@
     function bootstrapApplication() {
       loadStateFromStorage();
       applyRouteFromUrl();
+      window.addEventListener("beforeinstallprompt", (e) => {
+        e.preventDefault();
+        deferredInstallPrompt = e;
+        state.canInstallPwa = true;
+        renderApp();
+      });
       document.addEventListener("click", () => {
         if (state.openDropdownId) {
           state.openDropdownId = null;
