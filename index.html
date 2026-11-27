@@ -2476,7 +2476,7 @@
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <h1 class="text-xl font-bold app-text-main">Pengaturan</h1>
-              <p class="text-xs app-text-muted">Kelola profil usaha, pembayaran & status koneksi</p>
+              <p class="text-xs app-text-muted">Kelola profil usaha, pembayaran, backup database & status koneksi</p>
             </div>
             <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border ${state.firebaseConnected ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-800"}">
               <span class="w-2 h-2 rounded-full ${state.firebaseConnected ? "bg-emerald-500" : "bg-amber-500"}"></span>
@@ -2485,24 +2485,43 @@
           </div>
 
           ${role === "SUPER_ADMIN" ? `
-            <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4 max-w-xl">
-              <div class="font-semibold text-sm text-slate-900">Akun Super Admin</div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Nama</label>
-                <input type="text" id="sa-auth-name" value="${escapeHtml(state.superAdminAuth.name)}" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
+                <div class="font-semibold text-sm text-slate-900">Akun Super Admin</div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Nama</label>
+                  <input type="text" id="sa-auth-name" value="${escapeHtml(state.superAdminAuth.name)}" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Email / Username Login</label>
+                  <input type="text" id="sa-auth-email" value="${escapeHtml(state.superAdminAuth.email)}" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Password Baru</label>
+                  <input type="password" id="sa-auth-password" placeholder="Masukkan password baru" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+                </div>
+                <button type="button" onclick="window.appActions.saveSuperAdminCredentials()"
+                  class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold">
+                  Simpan Akun Super Admin
+                </button>
               </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Email / Username Login</label>
-                <input type="text" id="sa-auth-email" value="${escapeHtml(state.superAdminAuth.email)}" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+
+              <div class="surface-card rounded-2xl border border-slate-200/80 p-5 space-y-4">
+                <div class="font-semibold text-sm text-slate-900">Backup & Restore Database Firebase</div>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                  Unduh seluruh data platform (Owner, Tenant, Karyawan, Layanan, Pelanggan, Order, Keuangan & Konfigurasi) ke file <strong>.json</strong> untuk arsip offline atau pemulihan sewaktu-waktu.
+                </p>
+                <div class="flex flex-wrap gap-2.5">
+                  <button type="button" onclick="window.appActions.downloadDatabaseBackup()"
+                    class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold">
+                    Download Backup (.json)
+                  </button>
+                  <label class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold cursor-pointer inline-flex items-center">
+                    <span>Restore dari File (.json)</span>
+                    <input type="file" accept=".json,application/json" onchange="window.appActions.handleRestoreBackupFile(this)" class="hidden" />
+                  </label>
+                </div>
               </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Password Baru</label>
-                <input type="password" id="sa-auth-password" placeholder="Masukkan password baru" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
-              </div>
-              <button type="button" onclick="window.appActions.saveSuperAdminCredentials()"
-                class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold">
-                Simpan Akun Super Admin
-              </button>
             </div>
           ` : `
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -2582,6 +2601,19 @@
                       + Tambah Rekening / Metode
                     </button>
                   </div>
+                </div>
+              ` : ""}
+
+              ${role === "OWNER" ? `
+                <div class="lg:col-span-2 surface-card rounded-2xl border border-slate-200/80 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div class="space-y-1">
+                    <div class="font-semibold text-sm text-slate-900">Backup Data Cabang Usaha (.json)</div>
+                    <div class="text-xs text-slate-500">Unduh salinan data cabang, pelanggan, order, layanan & laporan keuangan Anda ke perangkat.</div>
+                  </div>
+                  <button type="button" onclick="window.appActions.downloadDatabaseBackup()"
+                    class="px-4 py-2.5 rounded-xl theme-primary-bg text-white text-xs font-semibold shrink-0">
+                    Download Backup (.json)
+                  </button>
                 </div>
               ` : ""}
             </div>
@@ -4315,6 +4347,107 @@
         syncGlobalToCloud();
         showToast("Akun Super Admin diperbarui");
         renderApp();
+      },
+
+      downloadDatabaseBackup() {
+        const role = state.currentUser?.role;
+        if (role !== "SUPER_ADMIN" && role !== "OWNER") {
+          showToast("Hanya Super Admin atau Owner yang dapat mengunduh backup", "error");
+          return;
+        }
+        const now = getJakartaNow();
+        let backupObj = null;
+        let fileName = `backup_ssmart_laundry_${now.dateStr}.json`;
+
+        if (role === "SUPER_ADMIN") {
+          backupObj = {
+            exportedAt: new Date().toISOString(),
+            scope: "SUPER_ADMIN_FULL",
+            appId,
+            platform_config: {
+              superAdminAuth: state.superAdminAuth,
+              platformBranding: state.platformBranding,
+              pricingPlans: state.pricingPlans,
+              roleGuides: state.roleGuides,
+              statusSettings: state.statusSettings
+            },
+            businesses: state.businesses,
+            owners: state.owners,
+            employees: state.employees,
+            services: state.services,
+            customers: state.customers,
+            orders: state.orders,
+            payments: state.payments,
+            expenses: state.expenses,
+            cashTransactions: state.cashTransactions
+          };
+          fileName = `backup_full_platform_${now.dateStr}.json`;
+        } else {
+          const ownedBiz = getOwnerBusinesses(state.currentUser.id);
+          const ownedIds = ownedBiz.map(b => b.id);
+          backupObj = {
+            exportedAt: new Date().toISOString(),
+            scope: "OWNER_TENANT",
+            ownerId: state.currentUser.id,
+            businesses: ownedBiz,
+            employees: state.employees.filter(e => ownedIds.includes(e.businessId)),
+            services: state.services.filter(s => ownedIds.includes(s.businessId)),
+            customers: state.customers.filter(c => ownedIds.includes(c.businessId)),
+            orders: state.orders.filter(o => ownedIds.includes(o.businessId)),
+            payments: state.payments.filter(p => ownedIds.includes(p.businessId)),
+            expenses: state.expenses.filter(e => ownedIds.includes(e.businessId)),
+            cashTransactions: state.cashTransactions.filter(c => ownedIds.includes(c.businessId))
+          };
+          const slug = String(getCurrentBusiness().name || "cabang").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+          fileName = `backup_${slug}_${now.dateStr}.json`;
+        }
+
+        const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 100);
+        showToast(`Backup berhasil diunduh (${fileName})`);
+      },
+
+      handleRestoreBackupFile(inputEl) {
+        if (state.currentUser?.role !== "SUPER_ADMIN") return;
+        const file = inputEl?.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const parsed = JSON.parse(String(reader.result || "{}"));
+            if (parsed.platform_config) {
+              const cfg = parsed.platform_config;
+              if (cfg.superAdminAuth) state.superAdminAuth = Object.assign({}, state.superAdminAuth, cfg.superAdminAuth);
+              if (cfg.platformBranding) state.platformBranding = Object.assign({}, DEFAULT_PLATFORM_BRANDING, cfg.platformBranding);
+              if (Array.isArray(cfg.pricingPlans) && cfg.pricingPlans.length) state.pricingPlans = cfg.pricingPlans;
+              if (cfg.roleGuides) state.roleGuides = Object.assign({}, state.roleGuides, cfg.roleGuides);
+              if (cfg.statusSettings) state.statusSettings = Object.assign({}, DEFAULT_STATUS_SETTINGS, cfg.statusSettings);
+            }
+            const cols = ["businesses", "owners", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions"];
+            for (const c of cols) {
+              if (Array.isArray(parsed[c])) {
+                state[c] = parsed[c];
+              }
+            }
+            applyThemeVariables();
+            saveStateToStorage();
+            await syncAllCollectionsToCloud();
+            showToast("Backup berhasil dipulihkan & disinkronkan ke Firebase");
+            renderApp();
+          } catch (err) {
+            showToast("Format file backup .json tidak valid", "error");
+          }
+        };
+        reader.readAsText(file);
       },
 
       handleBusinessLogoUpload(inputEl) {
