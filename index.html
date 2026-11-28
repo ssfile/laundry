@@ -261,61 +261,197 @@
     const STORAGE_KEY = "ssmart_laundry_state_v7";
     const COOKIE_CONSENT_KEY = "ssmart_cookie_notice_dismissed_v1";
 
-    // --- SHA-256 PASSWORD HASHING UTILITIES ---
-    const SHA256_PREFIX = "sha256:";
+    // --- YOUTUBE URL PARSER (LIGHTWEIGHT URL ONLY, ZERO FIREBASE STORAGE OVERHEAD) ---
+    function extractYouTubeVideoId(rawUrl) {
+      const url = String(rawUrl || "").trim();
+      if (!url) return "";
+      const patterns = [
+        /(?:youtube\.com\/shorts\/)([A-Za-z0-9_-]{6,15})/,
+        /(?:youtu\.be\/)([A-Za-z0-9_-]{6,15})/,
+        /(?:youtube\.com\/embed\/)([A-Za-z0-9_-]{6,15})/,
+        /(?:youtube\.com\/watch\?v=)([A-Za-z0-9_-]{6,15})/,
+        /(?:youtube\.com\/.*[?&]v=)([A-Za-z0-9_-]{6,15})/
+      ];
+      for (const re of patterns) {
+        const m = url.match(re);
+        if (m && m[1]) return m[1];
+      }
+      return "";
+    }
+
+    // --- SHA-256 PASSWORD HASHING UTILITIES (WITH UNIVERSAL PURE-JS FALLBACK) ---
+    function sha256PureJsFallback(ascii) {
+      function rightRotate(value, amount) {
+        return (value >>> amount) | (value << (32 - amount));
+      }
+      const mathPow = Math.pow;
+      const maxWord = mathPow(2, 32);
+      let result = "";
+      const words = [];
+      const asciiBitLength = ascii.length * 8;
+      const hash = [];
+      const k = [];
+      let primeCounter = 0;
+
+      const isComposite = {};
+      for (let candidate = 2; primeCounter < 64; candidate++) {
+        if (!isComposite[candidate]) {
+          for (let i = 0; i < 313; i += candidate) {
+            isComposite[i] = candidate;
+          }
+          hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
+          k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+        }
+      }
+
+      ascii += "\x80";
+      while ((ascii.length % 64) - 56) ascii += "\x00";
+      for (let i = 0; i < ascii.length; i++) {
+        const j = ascii.charCodeAt(i);
+        words[i >> 2] |= j << (((3 - i) % 4) * 8);
+      }
+      words[words.length] = (asciiBitLength / maxWord) | 0;
+      words[words.length] = asciiBitLength;
+
+      for (let j = 0; j < words.length;) {
+        const w = words.slice(j, (j += 16));
+        const oldHash = hash.slice(0);
+        for (let i = 0; i < 64; i++) {
+          const w15 = w[i - 15], w2 = w[i - 2];
+          const a = hash[0], e = hash[4];
+          const temp1 =
+            hash[7] +
+            (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
+            ((e & hash[5]) ^ (~e & hash[6])) +
+            k[i] +
+            (w[i] =
+              i < 16
+                ? w[i]
+                : (w[i - 16] +
+                    (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
+                    w[i - 7] +
+                    (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) |
+                  0);
+          const temp2 =
+            (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
+            ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+          hash.unshift((temp1 + temp2) | 0);
+          hash[4] = (hash[4] + temp1) | 0;
+          hash.pop();
+        }
+        for (let i = 0; i < 8; i++) {
+          hash[i] = (hash[i] + oldHash[i]) | 0;
+        }
+      }
+      for (let i = 0; i < 8; i++) {
+        for (let j = 3; j + 1; j--) {
+          const b = (hash[i] >> (j * 8)) & 255;
+          result += (b < 16 ? "0" : "") + b.toString(16);
+        }
+      }
+      return result;
+    }
+
+    async function sha256Hex(plainText) {
+      const str = String(plainText ?? "");
+      try {
+        if (window.crypto && window.crypto.subtle && typeof TextEncoder !== "undefined") {
+          const buf = new TextEncoder().encode(str);
+          const digest = await window.crypto.subtle.digest("SHA-256", buf);
+          return Array.from(new Uint8Array(digest))
+            .map(b => b.toString(16).padStart(2, "0"))
+            .join("");
+        }
+      } catch (e) {}
+      const utf8Str = unescape(encodeURIComponent(str));
+      return sha256PureJsFallback(utf8Str);
+    }
 
     function isSha256Hash(val) {
       return typeof val === "string" && /^sha256:[a-f0-9]{64}$/i.test(val.trim());
     }
 
-    async function sha256Hex(plainText) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(String(plainText ?? ""));
-      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-    }
-
     async function formatSha256Password(rawOrHashed) {
-      const val = String(rawOrHashed ?? "");
+      const val = String(rawOrHashed ?? "").trim();
       if (!val) return "";
       if (isSha256Hash(val)) return val.toLowerCase();
       const hex = await sha256Hex(val);
-      return `${SHA256_PREFIX}${hex}`;
+      return `sha256:${hex}`;
     }
 
-    async function verifyPasswordAgainstStored(inputPlain, storedPassword) {
-      const stored = String(storedPassword ?? "");
+    async function verifyPasswordAgainstStored(inputPlain, storedPass) {
+      const stored = String(storedPass ?? "").trim();
       if (!stored) return false;
       if (isSha256Hash(stored)) {
-        const inputHashed = await formatSha256Password(inputPlain);
-        return inputHashed === stored.toLowerCase();
+        const inputHash = await formatSha256Password(inputPlain);
+        return inputHash === stored.toLowerCase();
       }
-      return String(inputPlain) === stored;
+      return String(inputPlain ?? "") === stored;
     }
 
-    let db = null;
-    let auth = null;
-    let cloudConnected = false;
-    let listenersAttached = false;
-    let pendingCloudRenderTimer = null;
-    let deferredInstallPrompt = null;
-    let testimonialTouchStartX = 0;
-    let html5QrScanner = null;
-    let scannerRunning = false;
+    async function migrateLegacyPlainPasswordsToSha256() {
+      let updated = false;
+      const sa = state.platformBranding?.superAdminAuth;
+      if (sa && sa.password && !isSha256Hash(sa.password)) {
+        sa.password = await formatSha256Password(sa.password);
+        syncPlatformBrandingToCloud();
+        updated = true;
+      }
+      for (const o of state.owners || []) {
+        if (o.password && !isSha256Hash(o.password)) {
+          o.password = await formatSha256Password(o.password);
+          syncRecordToCloud("owners", o);
+          updated = true;
+        }
+      }
+      for (const em of state.employees || []) {
+        if (em.password && !isSha256Hash(em.password)) {
+          em.password = await formatSha256Password(em.password);
+          syncRecordToCloud("employees", em);
+          updated = true;
+        }
+      }
+      if (updated) saveStateToStorage();
+    }
 
-    const lastSnapshotHashes = {};
-    let lastManifestSignature = "";
-    let lastThemeSignature = "";
-    let lastShellSignature = "";
-    let lastRenderedTab = "";
-    let lastRenderedSubRoute = "";
+    // --- CONSTANTS & DEFAULT PLATFORM CONFIG ---
+    const AVAILABLE_WEB_FONTS = [
+      { value: "Poppins", label: "Poppins (Modern & Bersih — Default)" },
+      { value: "Plus Jakarta Sans", label: "Plus Jakarta Sans (SaaS Premium)" },
+      { value: "Inter", label: "Inter (Minimalis UI Profesional)" },
+      { value: "Lato", label: "Lato (Ramah & Mudah Dibaca)" },
+      { value: "Open Sans", label: "Open Sans (Netral & Klasik Web)" },
+      { value: "Roboto", label: "Roboto (Standar Android & Google)" },
+      { value: "Montserrat", label: "Montserrat (Tegas & Geometris)" },
+      { value: "Nunito", label: "Nunito (Membulat & Lembut)" },
+      { value: "DM Sans", label: "DM Sans (Modern Startup)" },
+      { value: "Work Sans", label: "Work Sans (Rapi untuk Angka & Kasir)" },
+      { value: "Rubik", label: "Rubik (Kontemporer & Seimbang)" },
+      { value: "Outfit", label: "Outfit (Elegan & Kekinian)" },
+      { value: "Quicksand", label: "Quicksand (Ringan & Segar)" },
+      { value: "Raleway", label: "Raleway (Stylish & Luas)" },
+      { value: "Ubuntu", label: "Ubuntu (Humanis & Jelas)" }
+    ];
 
-    window.addEventListener("beforeinstallprompt", (e) => {
-      e.preventDefault();
-      deferredInstallPrompt = e;
-      renderApp({ sidebarOnly: true });
-    });
+    const STATUS_FLOW = ["RECEIVED", "WASHING", "DRYING", "IRONING", "READY", "COMPLETED"];
+
+    const ORDER_STATUS_META = {
+      RECEIVED: { label: "Diterima", badge: "bg-slate-100 text-slate-700 border-slate-300" },
+      WASHING: { label: "Dicuci", badge: "bg-sky-50 text-sky-700 border-sky-200" },
+      DRYING: { label: "Dikeringkan", badge: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+      IRONING: { label: "Disetrika", badge: "bg-amber-50 text-amber-800 border-amber-200" },
+      READY: { label: "Siap Diambil", badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+      COMPLETED: { label: "Selesai / Diambil", badge: "bg-teal-50 text-teal-800 border-teal-200" }
+    };
+
+    const LEGAL_DOC_META = [
+      { id: "disclaimer", label: "Disclaimer & Ketentuan", field: "legalDisclaimerText", defaultKey: "legalDisclaimerText" },
+      { id: "privacy", label: "Kebijakan Privasi (UU PDP)", field: "legalPrivacyText", defaultKey: "legalPrivacyText" },
+      { id: "refund", label: "Kebijakan Refund", field: "legalRefundText", defaultKey: "legalRefundText" },
+      { id: "sla", label: "Perjanjian Layanan (SLA)", field: "legalSlaText", defaultKey: "legalSlaText" },
+      { id: "guide", label: "Panduan Pengguna", field: "legalGuideText", defaultKey: "legalGuideText" },
+      { id: "contact", label: "Kontak & Bantuan", field: "legalContactText", defaultKey: "legalContactText" }
+    ];
 
     const DEFAULT_PLATFORM_BRANDING = {
       appName: "SSmart Laundry",
@@ -328,145 +464,141 @@
       logoUrl: "",
       faviconUrl: "",
       supportWa: "6281234567890",
-      footerText: "© 2026 SSmart Laundry SaaS — Kelola Laundry Tanpa Ribet. All rights reserved.",
+      footerText: "© 2026 SSmart Laundry — Sistem Manajemen & Kasir Laundry Multi-Cabang.",
       legalUpdatedAt: "27 November 2026",
-      landingBadge: "SISTEM KASIR & MANAJEMEN LAUNDRY MODERN",
-      landingHeroTitle: "Kelola Bisnis Laundry Lebih Cepat, Rapi & Terkontrol dari Mana Saja",
-      landingHeroSubtitle: "Tinggalkan pencatatan nota manual yang rawan hilang. Atur transaksi kasir kiloan & satuan, cetak nota barcode thermal 58mm, kirim status cucian otomatis ke WhatsApp, hingga pantau laporan laba bersih seluruh cabang secara real-time.",
+      landingBadge: "APLIKASI KASIR & MANAJEMEN LAUNDRY MODERN",
+      landingHeroTitle: "Kelola Kasir, Nota Barcode, & Cabang Laundry dalam Satu Aplikasi",
+      landingHeroSubtitle: "Tinggalkan catatan kertas yang rawan hilang. Pantau order real-time, kirim nota & QRIS pembayaran otomatis ke WhatsApp pelanggan, dan cek laporan laba bersih kapan saja.",
       landingPrimaryCtaText: "Daftar / Konsultasi via WhatsApp",
-      landingSecondaryCtaText: "Masuk ke Aplikasi",
+      landingSecondaryCtaText: "Masuk / Login",
       landingHeroImageUrl: "",
+      landingCtaBannerTitle: "Siap Membuat Operasional Laundry Lebih Rapi & Menguntungkan?",
+      landingCtaBannerSubtitle: "Hubungi tim kami sekarang untuk aktivasi akun Owner atau uji coba sistem sesuai kebutuhan cabang Anda.",
       landingStats: [
-        { value: "100%", label: "Cloud Real-Time" },
-        { value: "58mm", label: "Nota Thermal & Barcode" },
-        { value: "Multi", label: "Cabang & Role Staf" }
+        { value: "58mm", label: "Nota Thermal + Barcode" },
+        { value: "Multi", label: "Cabang & Role Staf" },
+        { value: "Real-Time", label: "Lacak Status & Laba" }
       ],
       landingFeatures: [
-        { title: "Kasir Quick Order Multi-Layanan", desc: "Input order kiloan (kg), satuan (pcs), sepatu (pasang), diskon promo, dan ongkir antar-jemput dalam satu layar cepat.", icon: "shopping-bag", videoUrl: "" },
-        { title: "Nota Thermal & Barcode Balok", desc: "Cetak struk 58mm dengan barcode Code 128 atau kirim link nota digital langsung ke WhatsApp pelanggan.", icon: "printer", videoUrl: "" },
-        { title: "Pembayaran QRIS & Transfer", desc: "Tampilkan kode QRIS DANA/e-Wallet dan rekening bank outlet langsung di nota digital pelanggan.", icon: "qr-code", videoUrl: "" },
-        { title: "Scan Barcode Update Status", desc: "Operator cukup scan barcode nota pakai kamera HP untuk mengubah status cucian dari Dicuci hingga Siap Diambil.", icon: "scan-barcode", videoUrl: "" },
-        { title: "Integrasi Titik Google Maps", desc: "Simpan titik koordinat GPS dan link ShareLoc pelanggan agar kurir antar-jemput tidak nyasar.", icon: "map-pin", videoUrl: "" },
-        { title: "Laporan Keuangan & Laba Bersih", desc: "Pantau pemasukan, pengeluaran operasional, grafik arus kas, dan export laporan Excel (.csv) kapan saja.", icon: "bar-chart-3", videoUrl: "" }
+        {
+          icon: "shopping-bag",
+          title: "Kasir Quick Order Multi-Layanan",
+          desc: "Input layanan kiloan, satuan, bedcover, maupun sepatu dalam satu nota lengkap dengan diskon & ongkir.",
+          videoUrl: ""
+        },
+        {
+          icon: "scan-barcode",
+          title: "Nota Thermal 58mm & Barcode Balok",
+          desc: "Cetak struk rapi dengan barcode Code 128 yang bisa dipindai kamera HP saat proses cuci & setrika.",
+          videoUrl: ""
+        },
+        {
+          icon: "qr-code",
+          title: "Lacak Progress & QRIS Pelanggan",
+          desc: "Pelanggan memantau 6 tahapan cucian mandiri dan melihat QRIS / rekening outlet tanpa perlu aplikasi tambahan.",
+          videoUrl: ""
+        },
+        {
+          icon: "map-pin",
+          title: "Database Pelanggan & Google Maps",
+          desc: "Simpan titik koordinat atau link ShareLoc WhatsApp pelanggan untuk memudahkan kurir antar-jemput.",
+          videoUrl: ""
+        },
+        {
+          icon: "bar-chart-3",
+          title: "Laporan Keuangan & Export CSV",
+          desc: "Pantau arus kas masuk, pengeluaran operasional, laba bersih, serta unduh laporan siap buka di Excel.",
+          videoUrl: ""
+        },
+        {
+          icon: "users",
+          title: "Kontrol Multi-Cabang & Hak Akses",
+          desc: "Pisahkan akses Owner, Admin, Kasir, dan Operator lengkap dengan jejak audit setiap perubahan status.",
+          videoUrl: ""
+        }
       ],
       landingSteps: [
-        { step: "01", title: "Daftar & Atur Outlet", desc: "Buat akun Owner, tambahkan daftar layanan kiloan/satuan, serta pasang QRIS & rekening outlet Anda.", icon: "store", videoUrl: "" },
-        { step: "02", title: "Catat Transaksi Kasir", desc: "Kasir input pesanan pelanggan dalam hitungan detik, cetak nota barcode atau kirim tautan lacak ke WhatsApp.", icon: "receipt", videoUrl: "" },
-        { step: "03", title: "Pantau Produksi & Laba", desc: "Operator memperbarui progres cucian dan Owner memantau omzet serta laba bersih secara langsung.", icon: "trending-up", videoUrl: "" }
+        {
+          step: "01",
+          icon: "store",
+          title: "Atur Outlet & Daftar Tarif",
+          desc: "Masukkan nama outlet, layanan kiloan/satuan, serta gambar QRIS pembayaran Anda.",
+          videoUrl: ""
+        },
+        {
+          step: "02",
+          icon: "receipt",
+          title: "Catat Order & Kirim Nota WA",
+          desc: "Kasir menginput pesanan dalam hitungan detik, cetak struk barcode, dan kirim tautan lacak ke WA.",
+          videoUrl: ""
+        },
+        {
+          step: "03",
+          icon: "trending-up",
+          title: "Pantau Produksi & Laba Bersih",
+          desc: "Operator scan barcode saat selesai, kasir kirim notif siap ambil, dan Owner memantau omzet real-time.",
+          videoUrl: ""
+        }
       ],
       landingTestimonials: [
-        { name: "Hendra Wijaya", role: "Owner Berkah Clean Laundry (3 Cabang)", quote: "Sejak pakai SSmart Laundry, selisih kas dan nota hilang sudah tidak pernah terjadi lagi. Pelanggan juga senang karena bisa cek status cucian lewat HP." },
-        { name: "Rina Marlina", role: "Pengelola Express Wash & Shoes", quote: "Fitur scan barcode dari kamera HP sangat membantu operator kami. Update cucian selesai jadi jauh lebih cepat dan otomatis siap kabari pelanggan via WA." },
-        { name: "Dedi Kurniawan", role: "Pemilik Kinclong Kiloan & Bedcover", quote: "Laporan laba bersih harian dan grafik layanan terlaris membuat saya bisa ambil keputusan promo dengan tepat tanpa harus rekap buku manual tiap malam." },
-        { name: "Sari Wulandari", role: "Owner Rumah Cuci Mandiri", quote: "Tampilan kasirnya sangat gampang dipahami karyawan baru dalam 10 menit. QRIS dan titik Google Maps antar-jemput juga sangat membantu kurir kami." }
+        {
+          name: "Rina Kartika",
+          role: "Owner BersihKilat Laundry (3 Cabang)",
+          quote: "Sejak pakai SSmart Laundry, pelanggan tidak lagi bolak-balik tanya cucian sudah selesai atau belum karena bisa cek sendiri lewat link nota."
+        },
+        {
+          name: "Hendra Wijaya",
+          role: "Owner FreshWash Express",
+          quote: "Fitur scan barcode nota sangat membantu operator produksi. Selisih kas dan nota hilang sekarang hampir nol."
+        }
       ],
       landingFaqs: [
-        { q: "Apakah bisa digunakan di HP, Tablet, dan Laptop sekaligus?", a: "Ya. SSmart Laundry berbasis cloud real-time sehingga Kasir, Operator, dan Owner bisa mengakses data yang sama secara bersamaan dari perangkat apa pun." },
-        { q: "Apakah mendukung printer thermal Bluetooth 58mm?", a: "Mendukung. Anda dapat mencetak nota transaksi lengkap dengan barcode pelacakan menggunakan printer thermal 58mm maupun menyimpan nota sebagai PDF/gambar." },
-        { q: "Bagaimana jika masa langganan paket berakhir?", a: "Sistem menyediakan Masa Tenggang (Grace Period) selama 7 hari agar Anda memiliki waktu untuk melakukan perpanjangan paket maupun mencadangkan data." },
-        { q: "Apakah data outlet saya aman dan bisa di-backup?", a: "Setiap Owner memiliki hak akses terpisah untuk cabangnya dan dilengkapi fitur Download Backup (.json) serta Export Laporan Keuangan (.csv) kapan saja." }
+        {
+          q: "Apakah bisa digunakan di HP, Tablet, maupun Laptop Kasir?",
+          a: "Ya, aplikasi berjalan langsung di browser perangkat apa pun dan dapat di-install ke layar utama (PWA) tanpa melalui Play Store."
+        },
+        {
+          q: "Printer kasir jenis apa yang didukung?",
+          a: "Mendukung printer thermal Bluetooth maupun USB ukuran 58mm standar kasir yang terhubung ke HP atau komputer Anda."
+        },
+        {
+          q: "Apakah data aman jika berganti perangkat?",
+          a: "Seluruh data tersinkronisasi ke Cloud Firebase dan dilengkapi fitur Download Backup (.json) serta Export laporan (.csv) kapan saja."
+        }
       ],
-      landingCtaBannerTitle: "Siap Membuat Operasional Laundry Anda Lebih Profesional?",
-      landingCtaBannerSubtitle: "Hubungi tim kami untuk aktivasi akun Owner atau langsung masuk jika Anda sudah memiliki akun terdaftar.",
-      disclaimerText: `1. PERAN PENYEDIA PLATFORM
-SSmart Laundry menyediakan perangkat lunak berbasis Software-as-a-Service (SaaS) untuk pencatatan kasir (POS), pelacakan status cucian, manajemen stok, dan laporan keuangan usaha laundry. Penyedia Layanan bukan pemilik outlet laundry dan tidak bertanggung jawab atas kualitas hasil cucian maupun sengketa antara outlet dan pelanggan akhir.
-
-2. AKURASI INPUT & PERHITUNGAN
-Seluruh tagihan, diskon, biaya antar-jemput, dan laporan laba bersih dihitung otomatis berdasarkan data yang diinput Pengguna. Kesalahan penimbangan berat (kg), jumlah satuan, atau pencatatan biaya menjadi tanggung jawab masing-masing outlet.
-
-3. PEMBAYARAN QRIS & TRANSFER BANK
-Penyedia Layanan tidak bertindak sebagai payment gateway dan tidak menampung dana transaksi. QRIS serta rekening bank pada nota digital diatur oleh Owner/Admin outlet masing-masing.
-
-4. KETENTUAN PERAN (OWNER, ADMIN, KASIR & OPERATOR)
-- OWNER: Bertanggung jawab atas seluruh cabang, manajemen akun staf, keamanan kredensial, dan perpanjangan langganan sebelum Masa Tenggang 7 hari berakhir (lewat 7 hari masa tenggang, data tenant dapat dihapus permanen).
-- ADMIN: Bertanggung jawab atas keakuratan daftar layanan, tarif, stok bahan baku, dan pengaturan outlet.
-- KASIR: Wajib memastikan ketelitian input order, validasi bukti bayar tunai/QRIS/transfer, serta penerbitan nota.
-- OPERATOR: Wajib memperbarui status pengerjaan cucian secara jujur dan tepat waktu karena setiap aksi tercatat pada jejak audit (Audit Log).`,
-      privacyText: `1. DATA YANG KAMI KUMPULKAN
-Sesuai prinsip pelindungan data pribadi (UU PDP), aplikasi SSmart Laundry menyimpan data operasional yang diperlukan untuk menjalankan layanan, meliputi:
-- Data Akun Pengguna: Nama, email/username login, nomor telepon/WhatsApp, dan jabatan (Owner, Admin, Kasir, Operator).
-- Data Pelanggan Outlet: Nama pelanggan, nomor WhatsApp, alamat pengantaran, serta koordinat lokasi Google Maps yang diinput oleh outlet.
-- Data Transaksi: Rincian layanan cucian, nominal pembayaran, pengeluaran operasional, dan log aktivitas staf.
-
-2. PENGGUNAAN & PENYIMPANAN DATA
-Data disimpan secara terenkripsi melalui infrastruktur cloud Firebase dan penyimpanan lokal peramban (localStorage) untuk menjaga kecepatan akses. Kami tidak pernah menjual atau membagikan database pelanggan outlet Anda kepada pihak ketiga mana pun.
-
-3. HAK PENGGUNA & PENCADANGAN DATA
-Owner memiliki kendali penuh untuk mengunduh salinan data (Backup .json / Export .csv) kapan saja maupun meminta penghapusan permanen data outlet melalui Super Admin.`,
-      refundText: `1. KETENTUAN BERLANGGANAN PAKET
-Biaya langganan paket (Starter, Pro, maupun Business) dibayarkan di muka sesuai durasi periode yang disepakati antara Owner dan Pengelola Platform.
-
-2. KEBIJAKAN PENGEMBALIAN DANA (REFUND)
-- Pembayaran paket yang telah diaktivasi bersifat tidak dapat dikembalikan (non-refundable), kecuali terjadi kegagalan aktivasi akun dari sisi Penyedia Layanan dalam waktu 2x24 jam setelah bukti transfer terverifikasi.
-- Apabila terjadi kelebihan transfer nominal pembayaran paket, selisih dana akan dikembalikan atau dikonversi menjadi tambahan masa aktif langganan sesuai kesepakatan.
-
-3. UPGRADE & PERPANJANGAN PAKET
-Owner dapat mengajukan kenaikan paket (upgrade) kapan saja dengan menghubungi WhatsApp Support untuk penyesuaian kuota cabang.`,
-      slaText: `1. KETERSEDIAAN LAYANAN (UPTIME)
-SSmart Laundry berkomitmen menjaga ketersediaan akses aplikasi berbasis cloud sebesar 99% setiap bulan, di luar jadwal pemeliharaan sistem yang diinformasikan sebelumnya.
-
-2. WAKTU LAYANAN DUKUNGAN TEKNIS
-- Hari Kerja (Senin – Sabtu): Pukul 08.00 – 21.00 WIB.
-- Hari Minggu & Libur Nasional: Dukungan kendala darurat melalui WhatsApp Support.
-
-3. PENANGANAN GANGGUAN
-Laporan kendala teknis yang masuk melalui WhatsApp Support akan direspons maksimal dalam 1–3 jam pada jam operasional.`,
-      guideText: `PANDUAN SINGKAT PENGGUNAAN APLIKASI
-
-1. OWNER (Pemilik Usaha)
-- Buka menu "Cabang & Karyawan" untuk menambah cabang baru sesuai kuota paket dan membuat akun Admin, Kasir, maupun Operator.
-- Gunakan menu "Pengaturan Outlet" untuk mengisi nama laundry, nomor WA kasir, upload gambar QRIS DANA/e-Wallet, dan mengunduh Backup Data (.json).
-
-2. ADMIN
-- Atur harga layanan kiloan, satuan, atau express di menu "Layanan & Tarif".
-- Pantau sisa deterjen dan parfum di menu "Stok Bahan Baku" serta cek arus kas dan laba bersih di "Laporan Keuangan".
-
-3. KASIR
-- Buka "Kasir Quick Order", pilih pelanggan (atau ketik baru + tempel link ShareLoc WA), pilih layanan, lalu klik "Simpan Order & Cetak Nota".
-- Cetak struk thermal 58mm atau klik "Kirim Nota WA" agar pelanggan bisa melacak progres cuciannya.
-
-4. OPERATOR
-- Gunakan menu "Scan Barcode Balok" untuk memindai barcode pada nota pelanggan atau buka "Order Laundry" untuk memperbarui tahapan cucian hingga "Siap Diambil".`,
-      contactText: `PUSAT BANTUAN & KONTAK RESMI
-
-Butuh bantuan aktivasi akun Owner, upgrade jumlah cabang, atau kendala teknis penggunaan aplikasi? Hubungi tim kami melalui saluran resmi berikut:
-
-- Layanan Pelanggan (WhatsApp): Gunakan tombol "Hubungi WhatsApp Support" di bawah ini.
-- Jam Operasional CS: Senin – Sabtu, Pukul 08.00 – 21.00 WIB.
-- Layanan Konsultasi: Gratis panduan setup awal untuk outlet baru.`,
-      changelogText: `CATATAN PEMBARUAN SISTEM (CHANGELOG)
-
-v2.7 — Pembaruan Keamanan SHA-256
-- Enkripsi otomatis seluruh password (Super Admin, Owner, Admin, Kasir, Operator) menggunakan SHA-256 (sha256:...) sehingga tidak ada kata sandi teks biasa yang terlihat saat Inspect Element maupun di database.
-- Pemilih Font Global di Super Admin (Poppins, Plus Jakarta Sans, Inter, Lato, Open Sans, Roboto, Montserrat, dan lainnya).
-- Landing Page SaaS lengkap dengan simulasi interaktif, slider testimoni geser, & FAQ.`,
+      plans: {
+        STARTER: { id: "STARTER", name: "Starter", price: 99000, maxBranches: 1, desc: "Cocok untuk 1 outlet laundry rintisan." },
+        PRO: { id: "PRO", name: "Pro", price: 199000, maxBranches: 3, desc: "Ideal untuk bisnis berkembang hingga 3 cabang." },
+        BUSINESS: { id: "BUSINESS", name: "Business", price: 349000, maxBranches: 10, desc: "Untuk jaringan laundry multi-cabang skala besar." }
+      },
       superAdminAuth: {
-        id: "usr_super_admin",
+        id: "sa_main",
         name: "Super Admin",
         email: "admin",
-        password: "sha256:8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-        role: "SUPER_ADMIN"
+        password: "sha256:8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
       },
-      plans: {
-        STARTER: { id: "STARTER", name: "Starter", price: 99000, maxBranches: 1, desc: "1 Outlet • Kasir & Operator Unlimited" },
-        PRO: { id: "PRO", name: "Pro", price: 199000, maxBranches: 3, desc: "Hingga 3 Cabang • Laporan & QRIS" },
-        BUSINESS: { id: "BUSINESS", name: "Business", price: 349000, maxBranches: 10, desc: "Hingga 10 Cabang • Multi-Admin & Prioritas" }
-      }
+      legalDisclaimerText: "1. SSmart Laundry adalah perangkat lunak SaaS pencatatan operasional & kasir laundry.\n2. Penyedia platform tidak bertanggung jawab atas kualitas hasil cucian, kehilangan pakaian di outlet, maupun sengketa transaksi antara outlet dan pelanggan.\n3. Pembayaran QRIS/Transfer Bank pada nota terhubung langsung ke rekening masing-masing outlet, bukan ditampung oleh penyedia platform.",
+      legalPrivacyText: "1. Sesuai prinsip UU Pelindungan Data Pribadi (UU PDP), data pelanggan (nama, nomor WhatsApp, alamat, dan koordinat lokasi) hanya digunakan untuk operasional pesanan laundry.\n2. Password akun dienkripsi satu arah menggunakan algoritma SHA-256.\n3. Owner memiliki kendali penuh untuk mencadangkan (.json) maupun menghapus data usahanya.",
+      legalRefundText: "1. Biaya langganan paket SaaS yang telah diaktifkan bersifat non-refundable.\n2. Upgrade paket ke tingkat lebih tinggi dapat dilakukan kapan saja dengan penyesuaian masa aktif.",
+      legalSlaText: "1. Layanan dukungan teknis tersedia melalui WhatsApp Support pada jam kerja 08.00 – 21.00 WIB.\n2. Akun Owner yang melewati tanggal kedaluwarsa akan memasuki Masa Tenggang 7 hari sebelum pembersihan data otomatis.",
+      legalGuideText: "1. Owner: Atur cabang, tambah akun Admin/Kasir/Operator, dan pantau laporan keuangan.\n2. Kasir: Gunakan menu Kasir Quick Order untuk transaksi baru, cetak nota thermal, dan kirim nota ke WhatsApp.\n3. Operator: Gunakan menu Scan Barcode Balok atau Order Laundry untuk memperbarui progres cucian.",
+      legalContactText: "Hubungi tim dukungan resmi SSmart Laundry melalui tombol WhatsApp Support yang tersedia di aplikasi untuk bantuan teknis maupun perpanjangan paket."
     };
 
-    function addDaysIso(days) {
-      const d = new Date();
-      d.setDate(d.getDate() + days);
-      return d.toISOString().slice(0, 10);
-    }
-
+    // --- DATE HELPERS ---
     function todayIso() {
       return new Date().toISOString().slice(0, 10);
     }
 
+    function addDaysIso(days) {
+      const d = new Date();
+      d.setDate(d.getDate() + Number(days || 0));
+      return d.toISOString().slice(0, 10);
+    }
+
     function firstDayOfMonthIso() {
       const d = new Date();
-      return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
     }
 
     function firstDayOfYearIso() {
@@ -474,464 +606,281 @@ v2.7 — Pembaruan Keamanan SHA-256
       return `${d.getFullYear()}-01-01`;
     }
 
-    const INITIAL_STATE = {
-      currentUser: null,
-      activeBusinessId: "biz_ssmart_01",
-      activeTab: "dashboard",
-      publicOrderId: null,
-      mobileSidebarOpen: false,
-      openDropdownId: null,
-      cookieNoticeDismissed: false,
-      platformBranding: JSON.parse(JSON.stringify(DEFAULT_PLATFORM_BRANDING)),
-      businesses: [
-        {
-          id: "biz_ssmart_01",
-          ownerId: "own_01",
-          name: "SSmart Laundry Pusat",
-          plan: "PRO",
-          status: "ACTIVE",
-          phone: "6281299887766",
-          address: "Jl. Sudirman No. 45, Jakarta Selatan",
-          logoUrl: "",
-          qrisUrl: "",
-          bankName: "BCA",
-          bankAccount: "1234567890",
-          bankHolder: "SSmart Laundry",
-          receiptFooter: "Terima kasih telah mempercayakan cucian Anda kepada kami!",
-          invoicePrefix: "INV"
-        }
-      ],
-      owners: [
-        {
-          id: "own_01",
-          businessId: "biz_ssmart_01",
-          name: "Budi Santoso",
-          email: "owner@ssmart.id",
-          password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
-          phone: "6281299887766",
-          role: "OWNER",
-          plan: "PRO",
-          maxBranches: 3,
-          status: "ACTIVE",
-          expiresAt: addDaysIso(45)
-        }
-      ],
-      employees: [
-        {
-          id: "emp_admin_01",
-          businessId: "biz_ssmart_01",
-          name: "Siti Admin",
-          email: "admin@ssmart.id",
-          password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
-          phone: "081211112222",
-          role: "ADMIN",
-          active: true
-        },
-        {
-          id: "emp_kasir_01",
-          businessId: "biz_ssmart_01",
-          name: "Rina Kasir",
-          email: "kasir@ssmart.id",
-          password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
-          phone: "081233334444",
-          role: "KASIR",
-          active: true
-        },
-        {
-          id: "emp_op_01",
-          businessId: "biz_ssmart_01",
-          name: "Deni Operator",
-          email: "operator@ssmart.id",
-          password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
-          phone: "081255556666",
-          role: "OPERATOR",
-          active: true
-        }
-      ],
-      services: [
-        { id: "srv_01", businessId: "biz_ssmart_01", name: "Cuci Komplit Reguler", category: "Kiloan", unit: "kg", price: 7000, estHours: 48 },
-        { id: "srv_02", businessId: "biz_ssmart_01", name: "Cuci Komplit Express 6 Jam", category: "Express", unit: "kg", price: 14000, estHours: 6 },
-        { id: "srv_03", businessId: "biz_ssmart_01", name: "Setrika Saja", category: "Kiloan", unit: "kg", price: 5000, estHours: 24 },
-        { id: "srv_04", businessId: "biz_ssmart_01", name: "Cuci Bedcover Besar", category: "Satuan", unit: "pcs", price: 35000, estHours: 48 },
-        { id: "srv_05", businessId: "biz_ssmart_01", name: "Cuci Sepatu Deep Clean", category: "Sepatu", unit: "pasang", price: 40000, estHours: 72 }
-      ],
-      customers: [
-        {
-          id: "cust_01",
-          businessId: "biz_ssmart_01",
-          name: "Andi Pratama",
-          phone: "6281288990011",
-          address: "Jl. Melati No. 12, Kebayoran Baru",
-          lat: -6.2442,
-          lng: 106.8006,
-          mapsUrl: "https://www.google.com/maps?q=-6.2442,106.8006"
-        },
-        {
-          id: "cust_02",
-          businessId: "biz_ssmart_01",
-          name: "Nadia Putri",
-          phone: "6281377665544",
-          address: "Apartemen Sudirman Park Tower A",
-          lat: -6.2088,
-          lng: 106.8186,
-          mapsUrl: "https://www.google.com/maps?q=-6.2088,106.8186"
-        }
-      ],
-      orders: [
-        {
-          id: "ord_01",
-          businessId: "biz_ssmart_01",
-          invoiceNo: "INV-261127-101",
-          customerId: "cust_01",
-          customerName: "Andi Pratama",
-          customerPhone: "6281288990011",
-          customerAddress: "Jl. Melati No. 12, Kebayoran Baru",
-          customerLat: -6.2442,
-          customerLng: 106.8006,
-          customerMapsUrl: "https://www.google.com/maps?q=-6.2442,106.8006",
-          items: [
-            { serviceId: "srv_01", serviceName: "Cuci Komplit Reguler", unit: "kg", qty: 4.5, price: 7000, subtotal: 31500 },
-            { serviceId: "srv_04", serviceName: "Cuci Bedcover Besar", unit: "pcs", qty: 1, price: 35000, subtotal: 35000 }
-          ],
-          subtotalAmount: 66500,
-          discountAmount: 1500,
-          deliveryFee: 5000,
-          totalAmount: 70000,
-          paidAmount: 70000,
-          paymentStatus: "PAID",
-          paymentMethod: "QRIS",
-          status: "READY",
-          notes: "Parfum Sakura, pisahkan baju putih",
-          createdAt: new Date(Date.now() - 86400000).toISOString(),
-          dueDate: addDaysIso(1),
-          auditLog: [
-            { time: new Date(Date.now() - 86400000).toISOString(), actor: "Rina Kasir (KASIR)", action: "Order dibuat & lunas via QRIS" },
-            { time: new Date(Date.now() - 21600000).toISOString(), actor: "Deni Operator (OPERATOR)", action: "Status diubah menjadi Siap Diambil" }
-          ]
-        }
-      ],
-      payments: [
-        {
-          id: "pay_01",
-          businessId: "biz_ssmart_01",
-          orderId: "ord_01",
-          invoiceNo: "INV-261127-101",
-          customerName: "Andi Pratama",
-          amount: 70000,
-          method: "QRIS",
-          date: todayIso(),
-          recordedBy: "Rina Kasir"
-        }
-      ],
-      expenses: [
-        {
-          id: "exp_01",
-          businessId: "biz_ssmart_01",
-          title: "Deterjen Cair 20L & Parfum Laundry",
-          category: "Bahan Baku",
-          amount: 240000,
-          date: todayIso(),
-          notes: "Restock mingguan"
-        }
-      ],
-      cashTransactions: [
-        {
-          id: "cash_01",
-          businessId: "biz_ssmart_01",
-          type: "IN",
-          category: "Pendapatan Order",
-          description: "Pelunasan INV-261127-101 (Andi Pratama)",
-          amount: 70000,
-          date: todayIso()
-        },
-        {
-          id: "cash_02",
-          businessId: "biz_ssmart_01",
-          type: "OUT",
-          category: "Pengeluaran Operasional",
-          description: "Deterjen Cair 20L & Parfum Laundry",
-          amount: 240000,
-          date: todayIso()
-        }
-      ],
-      inventory: [
-        { id: "inv_01", businessId: "biz_ssmart_01", name: "Deterjen Cair Matic", unit: "Liter", stock: 18, minStock: 5 },
-        { id: "inv_02", businessId: "biz_ssmart_01", name: "Parfum Laundry Sakura", unit: "Liter", stock: 4, minStock: 5 },
-        { id: "inv_03", businessId: "biz_ssmart_01", name: "Plastik Packing Roll", unit: "Roll", stock: 9, minStock: 3 }
-      ],
-      posDraft: {
-        customerId: "",
-        customerName: "",
-        customerPhone: "",
-        customerAddress: "",
-        customerMapsUrl: "",
-        items: [],
-        discountAmount: 0,
-        deliveryFee: 0,
-        paymentMethod: "CASH",
-        paymentType: "FULL",
-        dpAmount: 0,
-        notes: ""
-      },
-      uiFilters: {
-        orderStatus: "ALL",
-        orderSearch: "",
-        customerSearch: "",
-        reportPreset: "MONTH",
-        reportStartDate: firstDayOfMonthIso(),
-        reportEndDate: todayIso(),
-        legalDocTab: "disclaimer",
-        platformEditorDocTab: "disclaimer",
-        platformSettingsSection: "general",
-        testimonialSlideIndex: 0,
-        openFaqIndex: 0,
-        manualVsMode: "ALL",
-        previewSimStep: 1,
-        previewSimItems: [
-          { id: "sim_srv_1", name: "Cuci Komplit Reguler", unit: "kg", qty: 3.5, price: 7000 },
-          { id: "sim_srv_2", name: "Cuci Bedcover Besar", unit: "pcs", qty: 1, price: 35000 }
-        ],
-        previewSimDiscount: 2000,
-        previewSimDelivery: 5000,
-        previewSimStatusIdx: 4
-      }
-    };
-
-    let state = JSON.parse(JSON.stringify(INITIAL_STATE));
-
-    const ORDER_STATUS_META = {
-      RECEIVED: { label: "Diterima", badge: "bg-slate-100 text-slate-700 border-slate-300" },
-      WASHING: { label: "Dicuci", badge: "brand-soft-bg border" },
-      DRYING: { label: "Dikeringkan", badge: "brand-soft-bg border" },
-      IRONING: { label: "Disetrika", badge: "brand-soft-bg border" },
-      READY: { label: "Siap Diambil", badge: "brand-solid border-transparent" },
-      COMPLETED: { label: "Selesai / Diambil", badge: "bg-slate-200 text-slate-800 border-slate-300" }
-    };
-
-    const STATUS_FLOW = ["RECEIVED", "WASHING", "DRYING", "IRONING", "READY", "COMPLETED"];
-
-    const LEGAL_DOC_META = [
-      { id: "disclaimer", label: "Disclaimer & Ketentuan", field: "disclaimerText", defaultKey: "disclaimerText" },
-      { id: "privacy", label: "Kebijakan Privasi (UU PDP)", field: "privacyText", defaultKey: "privacyText" },
-      { id: "refund", label: "Kebijakan Refund", field: "refundText", defaultKey: "refundText" },
-      { id: "sla", label: "SLA Layanan", field: "slaText", defaultKey: "slaText" },
-      { id: "guide", label: "Panduan Pengguna", field: "guideText", defaultKey: "guideText" },
-      { id: "contact", label: "Kontak & Bantuan", field: "contactText", defaultKey: "contactText" },
-      { id: "changelog", label: "Catatan Pembaruan", field: "changelogText", defaultKey: "changelogText" }
-    ];
-
-    const AVAILABLE_WEB_FONTS = [
-      { value: "Poppins", label: "Poppins (Modern Geometric — Default)" },
-      { value: "Plus Jakarta Sans", label: "Plus Jakarta Sans (SaaS Modern)" },
-      { value: "Inter", label: "Inter (Clean UI & Digital)" },
-      { value: "Lato", label: "Lato (Humanist & Ramah)" },
-      { value: "Open Sans", label: "Open Sans (Netral & Mudah Dibaca)" },
-      { value: "Roboto", label: "Roboto (Material & Tegas)" },
-      { value: "Montserrat", label: "Montserrat (Elegan & Kontemporer)" },
-      { value: "Nunito", label: "Nunito (Rounded & Lembut)" },
-      { value: "DM Sans", label: "DM Sans (Minimalis Modern)" },
-      { value: "Work Sans", label: "Work Sans (Proporsional & Rapi)" },
-      { value: "Rubik", label: "Rubik (Bulat Halus & Modern)" },
-      { value: "Outfit", label: "Outfit (Geometric Bersih)" },
-      { value: "Quicksand", label: "Quicksand (Ringan & Friendly)" },
-      { value: "Raleway", label: "Raleway (Stylish & Klasik Modern)" },
-      { value: "Ubuntu", label: "Ubuntu (Teknologi & Jelas)" }
-    ];
-
-    // --- UTILITIES ---
-    function esc(str) {
-      if (str === null || str === undefined) return "";
-      return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-    }
-
-    function formatRp(num) {
-      const val = Number(num) || 0;
-      return "Rp " + val.toLocaleString("id-ID");
-    }
-
-    function formatDateId(isoStr) {
-      if (!isoStr) return "-";
-      const d = new Date(isoStr);
-      if (isNaN(d.getTime())) return isoStr;
-      return d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
-    }
-
-    function formatDateTimeId(isoStr) {
-      if (!isoStr) return "-";
-      const d = new Date(isoStr);
-      if (isNaN(d.getTime())) return isoStr;
-      return d.toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-    }
-
-    function sanitizeWaPhone(phone) {
-      let digits = String(phone || "").replace(/\D/g, "");
-      if (digits.startsWith("0")) digits = "62" + digits.slice(1);
-      if (digits && !digits.startsWith("62")) digits = "62" + digits;
-      return digits;
-    }
-
-    function hexToRgba(hex, alpha) {
-      const clean = String(hex || "#0284c7").replace("#", "");
-      if (clean.length !== 6) return `rgba(2, 132, 199, ${alpha})`;
-      const r = parseInt(clean.slice(0, 2), 16);
-      const g = parseInt(clean.slice(2, 4), 16);
-      const b = parseInt(clean.slice(4, 6), 16);
-      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    }
-
-    function showToast(message, type = "info") {
-      const root = document.getElementById("toast-root");
-      if (!root) return;
-
-      const badgeStyle = {
-        success: "brand-solid border-transparent",
-        error: "bg-rose-600 text-white border-rose-700",
-        warning: "bg-amber-600 text-white border-amber-700",
-        info: "bg-slate-800 text-white border-slate-900"
-      }[type] || "bg-slate-800 text-white border-slate-900";
-
-      const toast = document.createElement("div");
-      toast.className = `pointer-events-auto px-4 py-3 rounded-2xl border shadow-lg text-xs font-semibold flex items-center justify-between gap-3 transition-all duration-200 ${badgeStyle}`;
-      toast.innerHTML = `
-        <span>${esc(message)}</span>
-        <button type="button" class="opacity-80 hover:opacity-100 text-[11px] font-bold" onclick="this.parentElement.remove()">✕</button>
-      `;
-
-      root.appendChild(toast);
-      setTimeout(() => {
-        if (toast && toast.parentElement) {
-          toast.remove();
-        }
-      }, 3600);
-    }
-
-    function compressImageFile(file, maxWidth = 480, quality = 0.72) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const img = new Image();
-          img.onload = () => {
-            const scale = Math.min(1, maxWidth / img.width);
-            const canvas = document.createElement("canvas");
-            canvas.width = Math.round(img.width * scale);
-            canvas.height = Math.round(img.height * scale);
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL("image/jpeg", quality));
-          };
-          img.onerror = reject;
-          img.src = ev.target.result;
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    }
-
-    function parseLocationInput(rawInput, fallbackAddress = "") {
-      const trimmed = String(rawInput || "").trim();
-      const coordMatch = trimmed.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-      if (coordMatch) {
-        const lat = parseFloat(coordMatch[1]);
-        const lng = parseFloat(coordMatch[2]);
-        if (!isNaN(lat) && !isNaN(lng)) {
-          return {
-            lat,
-            lng,
-            mapsUrl: trimmed.startsWith("http") ? trimmed : `https://www.google.com/maps?q=${lat},${lng}`
-          };
-        }
-      }
-
-      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-        return {
-          lat: null,
-          lng: null,
-          mapsUrl: trimmed
-        };
-      }
-
-      const queryTarget = trimmed || fallbackAddress;
+    // --- INITIAL DEMO SEED DATA (SHA-256 PASSWORDS) ---
+    function buildInitialSeedData() {
+      const bizId = "biz_demo_01";
+      const ownerId = "own_demo_01";
       return {
-        lat: null,
-        lng: null,
-        mapsUrl: queryTarget ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(queryTarget)}` : ""
+        businesses: [
+          {
+            id: bizId,
+            ownerId,
+            name: "SSmart Laundry Pusat",
+            plan: "PRO",
+            status: "ACTIVE",
+            phone: "6281234567890",
+            address: "Jl. Sudirman No. 45, Jakarta Selatan",
+            logoUrl: "",
+            qrisUrl: "",
+            bankName: "BCA",
+            bankAccount: "1234567890",
+            bankHolder: "SSmart Laundry",
+            receiptFooter: "Terima kasih telah mempercayakan cucian Anda kepada kami!",
+            invoicePrefix: "INV"
+          }
+        ],
+        owners: [
+          {
+            id: ownerId,
+            businessId: bizId,
+            name: "Budi Santoso (Demo Owner)",
+            email: "owner@ssmart.id",
+            password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+            phone: "6281234567890",
+            role: "OWNER",
+            plan: "PRO",
+            maxBranches: 3,
+            status: "ACTIVE",
+            expiresAt: addDaysIso(30)
+          }
+        ],
+        employees: [
+          {
+            id: "emp_admin_01",
+            businessId: bizId,
+            name: "Siti Admin",
+            email: "admin@ssmart.id",
+            password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+            phone: "6281211112222",
+            role: "ADMIN",
+            active: true
+          },
+          {
+            id: "emp_kasir_01",
+            businessId: bizId,
+            name: "Dewi Kasir",
+            email: "kasir@ssmart.id",
+            password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+            phone: "6281233334444",
+            role: "KASIR",
+            active: true
+          },
+          {
+            id: "emp_op_01",
+            businessId: bizId,
+            name: "Rudi Operator",
+            email: "operator@ssmart.id",
+            password: "sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+            phone: "6281255556666",
+            role: "OPERATOR",
+            active: true
+          }
+        ],
+        services: [
+          { id: "srv_01", businessId: bizId, name: "Cuci Komplit Reguler", category: "Kiloan", unit: "kg", price: 7000, estHours: 48 },
+          { id: "srv_02", businessId: bizId, name: "Cuci Komplit Express 6 Jam", category: "Express", unit: "kg", price: 14000, estHours: 6 },
+          { id: "srv_03", businessId: bizId, name: "Cuci Bedcover Besar", category: "Satuan", unit: "pcs", price: 35000, estHours: 48 },
+          { id: "srv_04", businessId: bizId, name: "Cuci Sepatu Deep Clean", category: "Sepatu", unit: "pasang", price: 40000, estHours: 72 }
+        ],
+        customers: [
+          {
+            id: "cust_01",
+            businessId: bizId,
+            name: "Andi Pratama",
+            phone: "6281288990011",
+            address: "Jl. Melati No. 12, Kebayoran Baru",
+            lat: -6.2442,
+            lng: 106.7985,
+            mapsUrl: "https://www.google.com/maps?q=-6.2442,106.7985"
+          }
+        ],
+        orders: [
+          {
+            id: "ord_demo_01",
+            businessId: bizId,
+            invoiceNo: "INV-261128-101",
+            customerId: "cust_01",
+            customerName: "Andi Pratama",
+            customerPhone: "6281288990011",
+            customerAddress: "Jl. Melati No. 12, Kebayoran Baru",
+            customerLat: -6.2442,
+            customerLng: 106.7985,
+            customerMapsUrl: "https://www.google.com/maps?q=-6.2442,106.7985",
+            items: [
+              { serviceId: "srv_01", serviceName: "Cuci Komplit Reguler", unit: "kg", qty: 3.5, price: 7000, subtotal: 24500 },
+              { serviceId: "srv_03", serviceName: "Cuci Bedcover Besar", unit: "pcs", qty: 1, price: 35000, subtotal: 35000 }
+            ],
+            subtotalAmount: 59500,
+            discountAmount: 0,
+            deliveryFee: 0,
+            totalAmount: 59500,
+            paidAmount: 59500,
+            paymentStatus: "PAID",
+            paymentMethod: "QRIS",
+            status: "READY",
+            notes: "Parfum Sakura lembut",
+            createdAt: new Date().toISOString(),
+            dueDate: addDaysIso(1),
+            auditLog: [
+              { time: new Date().toISOString(), actor: "Dewi Kasir (KASIR)", action: "Order dibuat (Lunas)" }
+            ]
+          }
+        ],
+        payments: [
+          {
+            id: "pay_demo_01",
+            businessId: bizId,
+            orderId: "ord_demo_01",
+            invoiceNo: "INV-261128-101",
+            customerName: "Andi Pratama",
+            amount: 59500,
+            method: "QRIS",
+            date: todayIso(),
+            recordedBy: "Dewi Kasir"
+          }
+        ],
+        expenses: [
+          {
+            id: "exp_demo_01",
+            businessId: bizId,
+            title: "Beli Deterjen Cair & Parfum",
+            category: "Bahan Baku",
+            amount: 120000,
+            date: todayIso(),
+            notes: ""
+          }
+        ],
+        cashTransactions: [
+          {
+            id: "cash_demo_01",
+            businessId: bizId,
+            type: "IN",
+            category: "Pendapatan Order",
+            description: "Pembayaran INV-261128-101 (Andi Pratama)",
+            amount: 59500,
+            date: todayIso()
+          },
+          {
+            id: "cash_demo_02",
+            businessId: bizId,
+            type: "OUT",
+            category: "Bahan Baku",
+            description: "Beli Deterjen Cair & Parfum",
+            amount: 120000,
+            date: todayIso()
+          }
+        ],
+        inventory: [
+          { id: "inv_01", businessId: bizId, name: "Deterjen Cair Premium", unit: "Liter", stock: 18, minStock: 5 },
+          { id: "inv_02", businessId: bizId, name: "Parfum Laundry Sakura", unit: "Liter", stock: 4, minStock: 5 },
+          { id: "inv_03", businessId: bizId, name: "Plastik Packing Roll", unit: "Roll", stock: 12, minStock: 3 }
+        ]
       };
     }
 
-    function buildEmbedMapUrl(lat, lng, address = "", mapsUrl = "") {
-      if (typeof lat === "number" && typeof lng === "number" && !isNaN(lat) && !isNaN(lng)) {
-        return `https://maps.google.com/maps?q=${lat},${lng}&z=15&output=embed`;
-      }
-      const coordFromUrl = String(mapsUrl || "").match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-      if (coordFromUrl) {
-        return `https://maps.google.com/maps?q=${coordFromUrl[1]},${coordFromUrl[2]}&z=15&output=embed`;
-      }
-      const q = encodeURIComponent(address || mapsUrl || "Jakarta, Indonesia");
-      return `https://maps.google.com/maps?q=${q}&z=14&output=embed`;
+    // --- GLOBAL APPLICATION STATE ---
+    function loadInitialState() {
+      const seed = buildInitialSeedData();
+      let cookieDismissed = false;
+      try {
+        cookieDismissed = localStorage.getItem(COOKIE_CONSENT_KEY) === "1";
+      } catch (e) {}
+
+      let saved = null;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) saved = JSON.parse(raw);
+      } catch (e) {}
+
+      const mergedBranding = {
+        ...DEFAULT_PLATFORM_BRANDING,
+        ...(saved?.platformBranding || {}),
+        superAdminAuth: {
+          ...DEFAULT_PLATFORM_BRANDING.superAdminAuth,
+          ...(saved?.platformBranding?.superAdminAuth || {})
+        },
+        plans: {
+          ...DEFAULT_PLATFORM_BRANDING.plans,
+          ...(saved?.platformBranding?.plans || {})
+        }
+      };
+
+      return {
+        currentUser: saved?.currentUser || null,
+        activeBusinessId: saved?.activeBusinessId || (saved?.businesses?.[0]?.id || seed.businesses[0].id),
+        activeTab: saved?.activeTab || "dashboard",
+        mobileSidebarOpen: false,
+        openDropdownId: null,
+        publicOrderId: null,
+        cookieNoticeDismissed: cookieDismissed,
+        platformBranding: mergedBranding,
+        businesses: Array.isArray(saved?.businesses) && saved.businesses.length ? saved.businesses : seed.businesses,
+        owners: Array.isArray(saved?.owners) && saved.owners.length ? saved.owners : seed.owners,
+        employees: Array.isArray(saved?.employees) && saved.employees.length ? saved.employees : seed.employees,
+        services: Array.isArray(saved?.services) && saved.services.length ? saved.services : seed.services,
+        customers: Array.isArray(saved?.customers) && saved.customers.length ? saved.customers : seed.customers,
+        orders: Array.isArray(saved?.orders) && saved.orders.length ? saved.orders : seed.orders,
+        payments: Array.isArray(saved?.payments) && saved.payments.length ? saved.payments : seed.payments,
+        expenses: Array.isArray(saved?.expenses) && saved.expenses.length ? saved.expenses : seed.expenses,
+        cashTransactions: Array.isArray(saved?.cashTransactions) && saved.cashTransactions.length ? saved.cashTransactions : seed.cashTransactions,
+        inventory: Array.isArray(saved?.inventory) && saved.inventory.length ? saved.inventory : seed.inventory,
+        posDraft: {
+          customerId: "",
+          customerName: "",
+          customerPhone: "",
+          customerAddress: "",
+          customerMapsUrl: "",
+          items: [],
+          discountAmount: 0,
+          deliveryFee: 0,
+          paymentMethod: "CASH",
+          paymentType: "FULL",
+          dpAmount: 0,
+          notes: ""
+        },
+        uiFilters: {
+          orderStatus: "ALL",
+          orderSearch: "",
+          customerSearch: "",
+          reportPreset: "MONTH",
+          reportStartDate: firstDayOfMonthIso(),
+          reportEndDate: todayIso(),
+          legalDocTab: "disclaimer",
+          platformSettingsSection: "general",
+          platformEditorDocTab: "disclaimer",
+          manualVsMode: "ALL",
+          previewSimStep: 1,
+          previewSimStatusIdx: 4,
+          previewSimItems: [
+            { id: "sim_srv_1", name: "Cuci Komplit Reguler", unit: "kg", qty: 3.5, price: 7000 },
+            { id: "sim_srv_2", name: "Cuci Bedcover Besar", unit: "pcs", qty: 1, price: 35000 }
+          ],
+          previewSimDiscount: 0,
+          previewSimDelivery: 0,
+          testimonialSlideIndex: 0,
+          openFaqIndex: 0
+        }
+      };
     }
 
-    function renderCustomDropdown({ id, value, options, placeholder = "Pilih opsi", onSelectExpr, buttonClass = "" }) {
-      const selected = options.find(o => String(o.value) === String(value));
-      const labelText = selected ? selected.label : placeholder;
-      const isOpen = state.openDropdownId === id;
+    const state = loadInitialState();
+    let db = null;
+    let auth = null;
+    let cloudConnected = false;
+    let listenersAttached = false;
+    let pendingCloudRenderTimer = null;
+    const lastSnapshotHashes = {};
+    let lastThemeSignature = "";
+    let lastManifestSignature = "";
+    let currentShellMode = "";
+    let deferredInstallPrompt = null;
+    let html5QrScanner = null;
+    let scannerRunning = false;
+    let testimonialTouchStartX = 0;
 
-      return `
-        <div class="relative w-full" data-custom-dropdown="${esc(id)}">
-          <button
-            type="button"
-            onclick="toggleCustomDropdown(event, '${esc(id)}')"
-            class="w-full px-3 py-2 rounded-xl bg-slate-50 hover:bg-white border border-slate-300 text-xs font-semibold text-slate-800 flex items-center justify-between gap-2 transition ${buttonClass}"
-          >
-            <span class="truncate text-left">${esc(labelText)}</span>
-            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 shrink-0 transition-transform duration-150 ${isOpen ? "rotate-180" : ""}"></i>
-          </button>
-          ${isOpen ? `
-            <div class="fixed inset-0 z-40" onclick="closeCustomDropdown()"></div>
-            <div class="absolute left-0 right-0 mt-1.5 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl py-1.5 max-h-60 overflow-y-auto">
-              ${options.length === 0
-                ? `<div class="px-3.5 py-2.5 text-xs text-slate-400">Tidak ada pilihan</div>`
-                : options.map(opt => {
-                    const active = String(opt.value) === String(value);
-                    const safeVal = String(opt.value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-                    return `
-                      <button
-                        type="button"
-                        onclick="state.openDropdownId = null; ${onSelectExpr.replace(/__VAL__/g, safeVal)};"
-                        class="w-full px-3.5 py-2 text-left text-xs flex items-center justify-between gap-2 transition ${active ? "brand-text font-bold bg-slate-50" : "text-slate-700 hover:bg-slate-50 font-medium"}"
-                      >
-                        <span class="truncate">${esc(opt.label)}</span>
-                        ${active ? `<i data-lucide="check" class="w-3.5 h-3.5 brand-text shrink-0"></i>` : ""}
-                      </button>
-                    `;
-                  }).join("")
-              }
-            </div>
-          ` : ""}
-        </div>
-      `;
-    }
-
-    function toggleCustomDropdown(event, dropdownId) {
-      if (event) event.stopPropagation();
-      state.openDropdownId = state.openDropdownId === dropdownId ? null : dropdownId;
-      renderApp({ sidebarOnly: state.openDropdownId?.startsWith("dd-biz") });
-    }
-
-    function closeCustomDropdown() {
-      if (!state.openDropdownId) return;
-      state.openDropdownId = null;
-      renderApp();
-    }
-
-    // --- STORAGE & CLOUD SYNC ---
     function saveStateToStorage() {
       try {
-        const toSave = {
+        const snapshot = {
           currentUser: state.currentUser,
           activeBusinessId: state.activeBusinessId,
           activeTab: state.activeTab,
@@ -947,104 +896,10 @@ v2.7 — Pembaruan Keamanan SHA-256
           cashTransactions: state.cashTransactions,
           inventory: state.inventory
         };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
       } catch (e) {
-        console.warn("Storage save skipped:", e);
+        console.warn("LocalStorage save skipped:", e);
       }
-    }
-
-    async function migrateLegacyPlainPasswordsToSha256() {
-      let changed = false;
-      const sa = state.platformBranding?.superAdminAuth;
-      if (sa && sa.password && !isSha256Hash(sa.password)) {
-        sa.password = await formatSha256Password(sa.password);
-        changed = true;
-      }
-      if (changed) {
-        syncPlatformBrandingToCloud();
-      }
-
-      for (let i = 0; i < (state.owners || []).length; i++) {
-        const o = state.owners[i];
-        if (o && o.password && !isSha256Hash(o.password)) {
-          o.password = await formatSha256Password(o.password);
-          syncRecordToCloud("owners", o);
-          changed = true;
-        }
-      }
-
-      for (let i = 0; i < (state.employees || []).length; i++) {
-        const emp = state.employees[i];
-        if (emp && emp.password && !isSha256Hash(emp.password)) {
-          emp.password = await formatSha256Password(emp.password);
-          syncRecordToCloud("employees", emp);
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        saveStateToStorage();
-      }
-    }
-
-    function loadStateFromStorage() {
-      try {
-        state.cookieNoticeDismissed = localStorage.getItem(COOKIE_CONSENT_KEY) === "1";
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (parsed.platformBranding) {
-          state.platformBranding = {
-            ...DEFAULT_PLATFORM_BRANDING,
-            ...parsed.platformBranding,
-            superAdminAuth: {
-              ...DEFAULT_PLATFORM_BRANDING.superAdminAuth,
-              ...(parsed.platformBranding.superAdminAuth || {})
-            },
-            plans: {
-              ...DEFAULT_PLATFORM_BRANDING.plans,
-              ...(parsed.platformBranding.plans || {})
-            }
-          };
-        }
-        ["businesses", "owners", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions", "inventory"].forEach(k => {
-          if (Array.isArray(parsed[k])) state[k] = parsed[k];
-        });
-        if (parsed.currentUser) state.currentUser = parsed.currentUser;
-        if (parsed.activeBusinessId) state.activeBusinessId = parsed.activeBusinessId;
-        if (parsed.activeTab) state.activeTab = parsed.activeTab;
-      } catch (e) {
-        console.warn("Storage load error:", e);
-      }
-    }
-
-    function openCacheConsentPopup() {
-      if (state.cookieNoticeDismissed || state.currentUser || state.publicOrderId) return;
-      const modalRoot = document.getElementById("modal-root");
-      if (!modalRoot || modalRoot.innerHTML.trim().length > 0) return;
-      const pb = state.platformBranding;
-      openModal(`
-        <div class="p-6 space-y-4">
-          <div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
-            <div>
-              <span class="text-[10px] uppercase tracking-wider brand-text font-bold">Persetujuan Cache & Penyimpanan Lokal</span>
-              <h3 class="text-base font-extrabold text-slate-900 mt-0.5">Penggunaan Cache & Local Storage</h3>
-            </div>
-            <button type="button" onclick="dismissCookieNotice()" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold">✕</button>
-          </div>
-          <p class="text-xs text-slate-600 leading-relaxed">
-            <b>${esc(pb.appName)}</b> menggunakan penyimpanan lokal peramban (<b>localStorage</b> & cache browser) untuk menjaga sesi masuk, mempercepat pemuatan antarmuka, serta mendukung kelancaran akses sementara.
-          </p>
-          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
-            <button type="button" onclick="closeModal(); openLegalHubModal('privacy');" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold text-center">
-              Baca Kebijakan Privasi
-            </button>
-            <button type="button" onclick="dismissCookieNotice()" class="brand-btn px-5 py-2.5 rounded-xl text-xs font-bold">
-              Setuju & Lanjutkan
-            </button>
-          </div>
-        </div>
-      `);
     }
 
     function dismissCookieNotice() {
@@ -1055,30 +910,41 @@ v2.7 — Pembaruan Keamanan SHA-256
       closeModal();
     }
 
-    function resolveVideoEmbedHtml(rawUrl, titleText) {
+    function resolveVideoEmbedHtml(rawUrl) {
       const url = String(rawUrl || "").trim();
       if (!url) {
         return `
           <div class="w-full max-w-[340px] mx-auto aspect-[9/16] rounded-2xl bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center space-y-2">
-            <p class="text-sm font-extrabold">Video Demo Belum Diunggah</p>
-            <p class="text-xs text-slate-300">Unggah file video (.mp4 / .webm) atau tempelkan tautan video pada menu <b>Pengaturan Platform → 2. Pengaturan Landing Page & Testimoni</b>.</p>
+            <p class="text-sm font-extrabold">Link Video Demo Belum Diisi</p>
+            <p class="text-xs text-slate-300">Tempelkan link video YouTube pada menu <b>Pengaturan Platform → 2. Pengaturan Landing Page & Testimoni</b>.</p>
           </div>
         `;
       }
 
-      const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
-      if (ytMatch && ytMatch[1]) {
-        const embedSrc = `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&loop=1&playlist=${ytMatch[1]}&rel=0`;
+      const ytId = extractYouTubeVideoId(url);
+      if (ytId) {
+        const originParam = (window.location.origin && window.location.origin !== "null")
+          ? `&origin=${encodeURIComponent(window.location.origin)}`
+          : "";
+        const embedSrc = `https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&playsinline=1&loop=1&playlist=${ytId}&controls=1&rel=0&modestbranding=1&enablejsapi=1${originParam}`;
         return `
           <div class="w-full max-w-[340px] mx-auto aspect-[9/16] rounded-2xl overflow-hidden bg-black">
-            <iframe src="${esc(embedSrc)}" title="Video Demo" class="w-full h-full border-0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            <iframe
+              id="demo-youtube-iframe"
+              src="${esc(embedSrc)}"
+              title="Video Demo"
+              class="w-full h-full border-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerpolicy="strict-origin-when-cross-origin"
+              allowfullscreen
+            ></iframe>
           </div>
         `;
       }
 
       const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
       if (vimeoMatch && vimeoMatch[1]) {
-        const vSrc = `https://player.vimeo.com/video/${vimeoMatch[1]}?autoplay=1&loop=1`;
+        const vSrc = `https://player.vimeo.com/video/${vimeoMatch[1]}?autoplay=1&muted=1&loop=1`;
         return `
           <div class="w-full max-w-[340px] mx-auto aspect-[9/16] rounded-2xl overflow-hidden bg-black">
             <iframe src="${esc(vSrc)}" title="Video Demo" class="w-full h-full border-0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
@@ -1088,7 +954,7 @@ v2.7 — Pembaruan Keamanan SHA-256
 
       return `
         <div class="w-full max-w-[340px] mx-auto aspect-[9/16] rounded-2xl overflow-hidden bg-black flex items-center justify-center">
-          <video src="${esc(url)}" controls autoplay loop playsinline class="w-full h-full object-cover bg-black">
+          <video src="${esc(url)}" controls autoplay muted loop playsinline class="w-full h-full object-cover bg-black">
             Browser Anda tidak mendukung pemutaran video ini.
           </video>
         </div>
@@ -1106,6 +972,8 @@ v2.7 — Pembaruan Keamanan SHA-256
       const modalRoot = document.getElementById("modal-root");
       if (!modalRoot) return;
 
+      const resolvedUrl = String(item.videoUrl || "").trim();
+
       modalRoot.innerHTML = `
         <div class="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4" onclick="if(event.target===this) closeModal()">
           <div class="bg-white text-slate-900 border-2 border-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-page">
@@ -1115,12 +983,22 @@ v2.7 — Pembaruan Keamanan SHA-256
               </button>
             </div>
             <div class="p-3 sm:p-4 bg-white">
-              ${resolveVideoEmbedHtml(item.videoUrl, item.title)}
+              ${resolveVideoEmbedHtml(resolvedUrl)}
             </div>
           </div>
         </div>
       `;
       if (window.lucide) lucide.createIcons();
+
+      // Trigger YouTube postMessage play command once iframe loads so autoplay never stalls
+      const ytFrame = document.getElementById("demo-youtube-iframe");
+      if (ytFrame) {
+        ytFrame.addEventListener("load", () => {
+          try {
+            ytFrame.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "playVideo", args: [] }), "*");
+          } catch (e) {}
+        });
+      }
     }
 
     function setManualVsMode(mode) {
@@ -1657,7 +1535,7 @@ v2.7 — Pembaruan Keamanan SHA-256
       const password = document.getElementById("login-password").value;
 
       const sa = state.platformBranding.superAdminAuth;
-      if (email === String(sa.email).toLowerCase() && await verifyPasswordAgainstStored(password, sa.password)) {
+      if (email === String(sa.email).trim().toLowerCase() && await verifyPasswordAgainstStored(password, sa.password)) {
         if (!isSha256Hash(sa.password)) {
           sa.password = await formatSha256Password(password);
           syncPlatformBrandingToCloud();
@@ -1673,7 +1551,7 @@ v2.7 — Pembaruan Keamanan SHA-256
 
       let matchedOwner = null;
       for (const o of state.owners) {
-        if (String(o.email).toLowerCase() === email && await verifyPasswordAgainstStored(password, o.password)) {
+        if (String(o.email).trim().toLowerCase() === email && await verifyPasswordAgainstStored(password, o.password)) {
           matchedOwner = o;
           break;
         }
@@ -1710,7 +1588,7 @@ v2.7 — Pembaruan Keamanan SHA-256
 
       let matchedEmp = null;
       for (const em of state.employees) {
-        if (String(em.email).toLowerCase() === email && await verifyPasswordAgainstStored(password, em.password)) {
+        if (String(em.email).trim().toLowerCase() === email && await verifyPasswordAgainstStored(password, em.password)) {
           matchedEmp = em;
           break;
         }
@@ -3083,7 +2961,7 @@ v2.7 — Pembaruan Keamanan SHA-256
               </div>
               <div>
                 <label class="block text-slate-600 font-medium mb-1">${existing ? "Password Baru (Kosongkan jika tetap)" : "Password Login"}</label>
-                <input id="own-pass" type="password" ${existing ? "" : "required"} placeholder="${existing ? "Biarkan kosong jika tidak diubah" : "Masukkan sandi..."}" class="w-full px-3 py-2 rounded-xl" />
+                <input id="own-pass" type="password" autocomplete="new-password" ${existing ? "" : "required"} placeholder="${existing ? "Biarkan kosong jika tidak diubah" : "Masukkan sandi..."}" class="w-full px-3 py-2 rounded-xl" />
               </div>
             </div>
 
@@ -3134,7 +3012,7 @@ v2.7 — Pembaruan Keamanan SHA-256
       const name = document.getElementById("own-name").value.trim();
       const phone = document.getElementById("own-phone").value.trim();
       const email = document.getElementById("own-email").value.trim().toLowerCase();
-      const rawPassword = document.getElementById("own-pass").value;
+      const rawPassword = document.getElementById("own-pass").value.trim();
       const planId = document.getElementById("own-plan").value;
       const expiresAt = document.getElementById("own-expires").value;
       const planObj = state.platformBranding.plans[planId] || { id: planId, maxBranches: 3 };
@@ -3142,7 +3020,7 @@ v2.7 — Pembaruan Keamanan SHA-256
       if (ownerId) {
         const idx = state.owners.findIndex(o => o.id === ownerId);
         if (idx !== -1) {
-          const finalPassword = rawPassword.trim()
+          const finalPassword = rawPassword
             ? await formatSha256Password(rawPassword)
             : state.owners[idx].password;
 
@@ -5073,7 +4951,7 @@ v2.7 — Pembaruan Keamanan SHA-256
               </div>
               <div>
                 <label class="block text-slate-600 font-medium mb-1">${existing ? "Password Baru (Opsional)" : "Password Login *"}</label>
-                <input id="emp-pass" type="password" ${existing ? "" : "required"} placeholder="${existing ? "Kosongkan jika tetap" : "Masukkan sandi..."}" class="w-full px-3 py-2 rounded-xl" />
+                <input id="emp-pass" type="password" autocomplete="new-password" ${existing ? "" : "required"} placeholder="${existing ? "Kosongkan jika tetap" : "Masukkan sandi..."}" class="w-full px-3 py-2 rounded-xl" />
               </div>
             </div>
             <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -5093,12 +4971,12 @@ v2.7 — Pembaruan Keamanan SHA-256
       const role = document.getElementById("emp-role").value;
       const phone = document.getElementById("emp-phone").value.trim();
       const email = document.getElementById("emp-email").value.trim().toLowerCase();
-      const rawPassword = document.getElementById("emp-pass").value;
+      const rawPassword = document.getElementById("emp-pass").value.trim();
 
       if (empId) {
         const idx = state.employees.findIndex(x => x.id === empId);
         if (idx !== -1) {
-          const finalPass = rawPassword.trim()
+          const finalPass = rawPassword
             ? await formatSha256Password(rawPassword)
             : state.employees[idx].password;
 
@@ -5318,7 +5196,7 @@ v2.7 — Pembaruan Keamanan SHA-256
           </div>
 
           ${activeSection === "general" ? `
-            <form onsubmit="savePlatformGeneralSettings(event)" class="surface-card rounded-2xl p-5 space-y-5 text-xs">
+            <form onsubmit="savePlatformGeneralSettings(event)" autocomplete="off" class="surface-card rounded-2xl p-5 space-y-5 text-xs">
               <div class="space-y-3">
                 <h2 class="text-sm font-bold text-slate-900">Identitas & Warna Tema Global</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -5427,11 +5305,11 @@ v2.7 — Pembaruan Keamanan SHA-256
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label class="block text-slate-600 font-medium mb-1">Username / Email Super Admin</label>
-                    <input id="sa-email" required value="${esc(pb.superAdminAuth.email)}" class="w-full px-3 py-2 rounded-xl" />
+                    <input id="sa-email" required autocomplete="off" value="${esc(pb.superAdminAuth.email)}" class="w-full px-3 py-2 rounded-xl" />
                   </div>
                   <div>
                     <label class="block text-slate-600 font-medium mb-1">Password Baru Super Admin (Opsional)</label>
-                    <input id="sa-pass" type="password" placeholder="Kosongkan jika tidak ingin mengubah sandi" class="w-full px-3 py-2 rounded-xl" />
+                    <input id="sa-pass" type="password" autocomplete="new-password" value="" placeholder="Kosongkan jika tidak ingin mengubah sandi" class="w-full px-3 py-2 rounded-xl" />
                   </div>
                 </div>
                 <p class="text-[11px] text-slate-500">Password dienkripsi satu arah menggunakan <b>SHA-256</b> sebelum disimpan ke browser & Firestore.</p>
@@ -5514,9 +5392,9 @@ v2.7 — Pembaruan Keamanan SHA-256
                         <input id="lp-feat-icon-${idx}" value="${esc(f.icon || "sparkles")}" placeholder="Nama Icon (misal: shopping-bag, qr-code)" class="w-full px-3 py-1.5 rounded-lg" />
                       </div>
                       <textarea id="lp-feat-desc-${idx}" rows="2" placeholder="Deskripsi Fitur" class="w-full px-3 py-1.5 rounded-lg">${esc(f.desc)}</textarea>
-                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
-                        <input id="lp-feat-vid-${idx}" value="${esc(f.videoUrl || "")}" placeholder="URL Video YouTube / MP4 atau upload file..." class="w-full px-3 py-1.5 rounded-lg" />
-                        <input type="file" accept="video/*" onchange="handleVideoFileToInput(event, 'lp-feat-vid-${idx}')" class="w-full text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:bg-slate-200 file:text-slate-800" />
+                      <div class="flex items-center gap-1.5">
+                        <input id="lp-feat-vid-${idx}" value="${esc(f.videoUrl || "")}" placeholder="Tempel link video YouTube (Shorts / watch / youtu.be)..." class="w-full px-3 py-1.5 rounded-lg" />
+                        ${f.videoUrl ? `<button type="button" onclick="document.getElementById('lp-feat-vid-${idx}').value=''; showToast('Link video dihapus. Klik Simpan untuk menerapkan.', 'info');" class="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-600 font-bold shrink-0">✕</button>` : ""}
                       </div>
                     </div>
                   `).join("")}
@@ -5538,8 +5416,36 @@ v2.7 — Pembaruan Keamanan SHA-256
                       </div>
                       <input id="lp-step-title-${idx}" value="${esc(st.title)}" placeholder="Judul Langkah" class="w-full px-2.5 py-1.5 rounded-lg font-semibold" />
                       <textarea id="lp-step-desc-${idx}" rows="2" placeholder="Penjelasan" class="w-full px-2.5 py-1.5 rounded-lg">${esc(st.desc)}</textarea>
-                      <input id="lp-step-vid-${idx}" value="${esc(st.videoUrl || "")}" placeholder="URL Video YouTube / MP4..." class="w-full px-2.5 py-1.5 rounded-lg text-[11px]" />
-                      <input type="file" accept="video/*" onchange="handleVideoFileToInput(event, 'lp-step-vid-${idx}')" class="w-full text-[10px] text-slate-500 file:mr-1.5 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-slate-200 file:text-slate-800" />
+                      <div class="flex items-center gap-1">
+                        <input id="lp-step-vid-${idx}" value="${esc(st.videoUrl || "")}" placeholder="Tempel link video YouTube..." class="w-full px-2.5 py-1.5 rounded-lg text-[11px]" />
+                        ${st.videoUrl ? `<button type="button" onclick="document.getElementById('lp-step-vid-${idx}').value=''; showToast('Link video dihapus. Klik Simpan.', 'info');" class="px-2 py-1.5 rounded-lg bg-rose-50 text-rose-600 font-bold shrink-0">✕</button>` : ""}
+                      </div>
+                    </div>
+                  `).join("")}
+                </div>
+              </div>
+
+              <!-- 3 Steps Repeater -->
+              <div class="border-t border-slate-100 pt-4 space-y-3">
+                <div class="flex items-center justify-between">
+                  <h2 class="text-sm font-bold text-slate-900">Langkah Alur Praktis & Video (${steps.length})</h2>
+                  <button type="button" onclick="addLandingRepeaterItem('landingSteps')" class="px-3 py-1.5 rounded-xl brand-soft-bg font-bold">+ Tambah Langkah</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  ${steps.map((st, idx) => `
+                    <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                      <div class="flex items-center justify-between gap-2">
+                        <input id="lp-step-icon-${idx}" value="${esc(st.icon || "check-circle-2")}" placeholder="Nama Icon" class="w-full px-2 py-1 rounded-lg font-semibold text-[11px]" />
+                        <button type="button" onclick="removeLandingRepeaterItem('landingSteps', ${idx})" class="text-rose-600 font-semibold shrink-0">Hapus</button>
+                      </div>
+                      <input id="lp-step-title-${idx}" value="${esc(st.title)}" placeholder="Judul Langkah" class="w-full px-2.5 py-1.5 rounded-lg font-semibold" />
+                      <textarea id="lp-step-desc-${idx}" rows="2" placeholder="Penjelasan" class="w-full px-2.5 py-1.5 rounded-lg">${esc(st.desc)}</textarea>
+                      <div class="flex items-center gap-1">
+                        <input id="lp-step-vid-${idx}" value="${esc(st.videoUrl || "")}" placeholder="URL Video YouTube / MP4..." class="w-full px-2.5 py-1.5 rounded-lg text-[11px]" />
+                        ${st.videoUrl ? `<button type="button" onclick="document.getElementById('lp-step-vid-${idx}').value=''; showToast('Tautan video dihapus. Klik Simpan.', 'info');" class="px-2 py-1.5 rounded-lg bg-rose-50 text-rose-600 font-bold shrink-0">✕</button>` : ""}
+                      </div>
+                      <input type="file" accept="video/*" onchange="handleVideoFileToInput(event, 'lp-step-vid-${idx}', 'step_${idx}')" class="w-full text-[10px] text-slate-500 file:mr-1.5 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-slate-200 file:text-slate-800" />
+                      ${String(st.videoUrl || "").startsWith("idb://") ? `<p class="text-[10px] brand-text font-semibold">✓ Video lokal tersimpan</p>` : ""}
                     </div>
                   `).join("")}
                 </div>
@@ -5719,9 +5625,11 @@ v2.7 — Pembaruan Keamanan SHA-256
       });
 
       pb.superAdminAuth.email = document.getElementById("sa-email").value.trim();
-      const rawSaPass = document.getElementById("sa-pass").value;
-      if (rawSaPass.trim()) {
+      const saPassEl = document.getElementById("sa-pass");
+      const rawSaPass = saPassEl ? saPassEl.value.trim() : "";
+      if (rawSaPass) {
         pb.superAdminAuth.password = await formatSha256Password(rawSaPass);
+        if (saPassEl) saPassEl.value = "";
       } else if (!isSha256Hash(pb.superAdminAuth.password)) {
         pb.superAdminAuth.password = await formatSha256Password(pb.superAdminAuth.password);
       }
@@ -5763,21 +5671,29 @@ v2.7 — Pembaruan Keamanan SHA-256
       })).filter(s => s.value || s.label);
 
       const oldFeatures = Array.isArray(pb.landingFeatures) ? pb.landingFeatures : [];
-      pb.landingFeatures = oldFeatures.map((oldF, idx) => ({
-        title: document.getElementById(`lp-feat-title-${idx}`)?.value.trim() || "",
-        desc: document.getElementById(`lp-feat-desc-${idx}`)?.value.trim() || "",
-        icon: document.getElementById(`lp-feat-icon-${idx}`)?.value.trim() || oldF.icon || "sparkles",
-        videoUrl: document.getElementById(`lp-feat-vid-${idx}`)?.value.trim() || oldF.videoUrl || ""
-      })).filter(f => f.title);
+      pb.landingFeatures = oldFeatures.map((oldF, idx) => {
+        const vidInp = document.getElementById(`lp-feat-vid-${idx}`);
+        const vidVal = vidInp ? vidInp.value.trim() : (oldF.videoUrl || "");
+        return {
+          title: document.getElementById(`lp-feat-title-${idx}`)?.value.trim() || "",
+          desc: document.getElementById(`lp-feat-desc-${idx}`)?.value.trim() || "",
+          icon: document.getElementById(`lp-feat-icon-${idx}`)?.value.trim() || oldF.icon || "sparkles",
+          videoUrl: vidVal
+        };
+      }).filter(f => f.title);
 
       const oldSteps = Array.isArray(pb.landingSteps) ? pb.landingSteps : [];
-      pb.landingSteps = oldSteps.map((oldSt, idx) => ({
-        step: oldSt.step || `0${idx + 1}`,
-        title: document.getElementById(`lp-step-title-${idx}`)?.value.trim() || "",
-        desc: document.getElementById(`lp-step-desc-${idx}`)?.value.trim() || "",
-        icon: document.getElementById(`lp-step-icon-${idx}`)?.value.trim() || oldSt.icon || "check-circle-2",
-        videoUrl: document.getElementById(`lp-step-vid-${idx}`)?.value.trim() || oldSt.videoUrl || ""
-      })).filter(st => st.title);
+      pb.landingSteps = oldSteps.map((oldSt, idx) => {
+        const vidInp = document.getElementById(`lp-step-vid-${idx}`);
+        const vidVal = vidInp ? vidInp.value.trim() : (oldSt.videoUrl || "");
+        return {
+          step: oldSt.step || `0${idx + 1}`,
+          title: document.getElementById(`lp-step-title-${idx}`)?.value.trim() || "",
+          desc: document.getElementById(`lp-step-desc-${idx}`)?.value.trim() || "",
+          icon: document.getElementById(`lp-step-icon-${idx}`)?.value.trim() || oldSt.icon || "check-circle-2",
+          videoUrl: vidVal
+        };
+      }).filter(st => st.title);
 
       const oldTestimonials = Array.isArray(pb.landingTestimonials) ? pb.landingTestimonials : [];
       pb.landingTestimonials = oldTestimonials.map((_, idx) => ({
@@ -5793,7 +5709,7 @@ v2.7 — Pembaruan Keamanan SHA-256
       })).filter(fq => fq.q && fq.a);
 
       syncPlatformBrandingToCloud();
-      showToast("Seluruh pengaturan Landing Page & Testimoni berhasil disimpan!", "success");
+      showToast("Seluruh pengaturan Landing Page & Video Demo berhasil disimpan!", "success");
       renderApp();
     }
 
@@ -5816,25 +5732,10 @@ v2.7 — Pembaruan Keamanan SHA-256
       }
     }
 
-    function handleVideoFileToInput(event, targetInputId) {
-      const file = event.target.files?.[0];
-      if (!file) return;
-      if (file.size > 8 * 1024 * 1024) {
-        showToast("Ukuran file video terlalu besar (maks. 8 MB). Gunakan tautan YouTube/MP4 jika video panjang.", "warning");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const inp = document.getElementById(targetInputId);
-        if (inp) inp.value = reader.result;
-        showToast("Video berhasil dimuat. Klik 'Simpan Perubahan Landing Page' untuk menyimpan.", "success");
-      };
-      reader.readAsDataURL(file);
-    }
-
     // --- BACKUP & RESTORE FUNCTIONS ---
     function downloadJsonFile(dataObj, filename) {
-      const blob = new Blob([JSON.stringify(dataObj, null, 2)], { type: "application/json" });
+      const jsonStr = JSON.stringify(dataObj, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -5842,60 +5743,55 @@ v2.7 — Pembaruan Keamanan SHA-256
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     function downloadOwnerBackup(ownerId) {
       const owner = state.owners.find(o => o.id === ownerId);
-      const bizIds = state.businesses
-        .filter(b => b.ownerId === ownerId || (owner && b.id === owner.businessId))
-        .map(b => b.id);
-
+      if (!owner) return;
+      const branches = state.businesses.filter(b => b.ownerId === ownerId || b.id === owner.businessId);
+      const branchIds = branches.map(b => b.id);
       const backup = {
-        backupScope: "OWNER_TENANT",
+        type: "SSMART_OWNER_BACKUP",
         exportedAt: new Date().toISOString(),
-        ownerId,
         owner,
-        businesses: state.businesses.filter(b => bizIds.includes(b.id)),
-        employees: state.employees.filter(e => bizIds.includes(e.businessId)),
-        services: state.services.filter(s => bizIds.includes(s.businessId)),
-        customers: state.customers.filter(c => bizIds.includes(c.businessId)),
-        orders: state.orders.filter(o => bizIds.includes(o.businessId)),
-        payments: state.payments.filter(p => bizIds.includes(p.businessId)),
-        expenses: state.expenses.filter(ex => bizIds.includes(ex.businessId)),
-        cashTransactions: state.cashTransactions.filter(ct => bizIds.includes(ct.businessId)),
-        inventory: state.inventory.filter(iv => bizIds.includes(iv.businessId))
+        businesses: branches,
+        employees: state.employees.filter(e => branchIds.includes(e.businessId)),
+        services: state.services.filter(s => branchIds.includes(s.businessId)),
+        customers: state.customers.filter(c => branchIds.includes(c.businessId)),
+        orders: state.orders.filter(o => branchIds.includes(o.businessId)),
+        payments: state.payments.filter(p => branchIds.includes(p.businessId)),
+        expenses: state.expenses.filter(ex => branchIds.includes(ex.businessId)),
+        cashTransactions: state.cashTransactions.filter(ct => branchIds.includes(ct.businessId)),
+        inventory: state.inventory.filter(inv => branchIds.includes(inv.businessId))
       };
-
-      const safeName = (owner?.name || "Owner").replace(/\s+/g, "_");
-      downloadJsonFile(backup, `Backup_SSmart_${safeName}_${todayIso()}.json`);
-      showToast("File backup Owner (.json) berhasil diunduh!", "success");
+      downloadJsonFile(backup, `Backup_Owner_${owner.name.replace(/\s+/g, "_")}_${todayIso()}.json`);
+      showToast("Backup data Owner berhasil diunduh!", "success");
     }
 
     function restoreOwnerBackupFromFile(event, ownerId) {
-      if (!assertBusinessOperational()) return;
       const file = event.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = async () => {
         try {
-          const data = JSON.parse(reader.result);
-          if (data.backupScope !== "OWNER_TENANT" || !Array.isArray(data.businesses)) {
+          const parsed = JSON.parse(reader.result);
+          if (parsed.type !== "SSMART_OWNER_BACKUP" || !Array.isArray(parsed.businesses)) {
             showToast("Format file backup Owner tidak valid.", "error");
             return;
           }
-          const bizIds = data.businesses.map(b => b.id);
-          state.businesses = [...state.businesses.filter(b => !bizIds.includes(b.id)), ...data.businesses];
-          data.businesses.forEach(b => syncRecordToCloud("businesses", b));
+          const branchIds = parsed.businesses.map(b => b.id);
+          state.businesses = [...state.businesses.filter(b => !branchIds.includes(b.id)), ...parsed.businesses];
+          parsed.businesses.forEach(b => syncRecordToCloud("businesses", b));
 
           ["employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions", "inventory"].forEach(col => {
-            if (Array.isArray(data[col])) {
-              state[col] = [...state[col].filter(item => !bizIds.includes(item.businessId)), ...data[col]];
-              data[col].forEach(item => syncRecordToCloud(col, item));
+            if (Array.isArray(parsed[col])) {
+              state[col] = [...(state[col] || []).filter(item => !branchIds.includes(item.businessId)), ...parsed[col]];
+              parsed[col].forEach(item => syncRecordToCloud(col, item));
             }
           });
           await migrateLegacyPlainPasswordsToSha256();
-          showToast("Restore data usaha Owner berhasil!", "success");
+          showToast("Restore data Owner berhasil!", "success");
           renderApp();
         } catch (err) {
           showToast("Gagal membaca file backup JSON.", "error");
@@ -5906,11 +5802,11 @@ v2.7 — Pembaruan Keamanan SHA-256
 
     function downloadFullPlatformBackup() {
       const backup = {
-        backupScope: "FULL_PLATFORM",
+        type: "SSMART_FULL_PLATFORM_BACKUP",
         exportedAt: new Date().toISOString(),
         platformBranding: state.platformBranding,
-        owners: state.owners,
         businesses: state.businesses,
+        owners: state.owners,
         employees: state.employees,
         services: state.services,
         customers: state.customers,
@@ -5930,39 +5826,227 @@ v2.7 — Pembaruan Keamanan SHA-256
       const reader = new FileReader();
       reader.onload = async () => {
         try {
-          const data = JSON.parse(reader.result);
-          if (data.backupScope !== "FULL_PLATFORM") {
-            showToast("File bukan backup full platform.", "error");
+          const parsed = JSON.parse(reader.result);
+          if (parsed.type !== "SSMART_FULL_PLATFORM_BACKUP") {
+            showToast("Format file backup platform tidak valid.", "error");
             return;
           }
-          if (data.platformBranding) {
-            state.platformBranding = { ...DEFAULT_PLATFORM_BRANDING, ...data.platformBranding };
-            applyThemeVariables();
+          if (parsed.platformBranding) {
+            state.platformBranding = { ...DEFAULT_PLATFORM_BRANDING, ...parsed.platformBranding };
             syncPlatformBrandingToCloud();
           }
-          ["owners", "businesses", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions", "inventory"].forEach(col => {
-            if (Array.isArray(data[col])) {
-              state[col] = data[col];
-              data[col].forEach(rec => syncRecordToCloud(col, rec));
+          ["businesses", "owners", "employees", "services", "customers", "orders", "payments", "expenses", "cashTransactions", "inventory"].forEach(col => {
+            if (Array.isArray(parsed[col])) {
+              state[col] = parsed[col];
+              parsed[col].forEach(item => syncRecordToCloud(col, item));
             }
           });
           await migrateLegacyPlainPasswordsToSha256();
+          applyThemeVariables();
           showToast("Restore seluruh database platform berhasil!", "success");
           renderApp({ forceShellRebuild: true });
         } catch (err) {
-          showToast("Gagal memulihkan file JSON.", "error");
+          showToast("Gagal memulihkan file backup platform.", "error");
         }
       };
       reader.readAsText(file);
     }
 
-    // --- MODAL SYSTEM ---
+    // --- UTILITIES ---
+    function esc(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function formatRp(num) {
+      const n = Math.round(Number(num) || 0);
+      return "Rp " + n.toLocaleString("id-ID");
+    }
+
+    function formatDateId(isoStr) {
+      if (!isoStr) return "-";
+      const clean = String(isoStr).slice(0, 10);
+      const parts = clean.split("-");
+      if (parts.length !== 3) return clean;
+      const months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+      const mIdx = Math.max(0, Math.min(11, parseInt(parts[1], 10) - 1));
+      return `${parseInt(parts[2], 10)} ${months[mIdx]} ${parts[0]}`;
+    }
+
+    function formatDateTimeId(isoStr) {
+      if (!isoStr) return "-";
+      try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return String(isoStr);
+        return `${formatDateId(d.toISOString())} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      } catch (e) {
+        return String(isoStr);
+      }
+    }
+
+    function sanitizeWaPhone(raw) {
+      let digits = String(raw || "").replace(/\D/g, "");
+      if (!digits) return "";
+      if (digits.startsWith("0")) digits = "62" + digits.slice(1);
+      else if (digits.startsWith("8")) digits = "62" + digits;
+      return digits;
+    }
+
+    function hexToRgba(hex, alpha = 1) {
+      const clean = String(hex || "#0284c7").replace("#", "").trim();
+      const full = clean.length === 3 ? clean.split("").map(c => c + c).join("") : clean.padEnd(6, "0");
+      const r = parseInt(full.slice(0, 2), 16) || 2;
+      const g = parseInt(full.slice(2, 4), 16) || 132;
+      const b = parseInt(full.slice(4, 6), 16) || 199;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    function compressImageFile(file, maxWidth = 640, quality = 0.75) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = () => {
+          const img = new Image();
+          img.onerror = reject;
+          img.onload = () => {
+            const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function parseLocationInput(rawInput, fallbackAddr = "") {
+      const str = String(rawInput || "").trim();
+      if (!str) {
+        return {
+          lat: -6.200000,
+          lng: 106.816666,
+          mapsUrl: fallbackAddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fallbackAddr)}` : ""
+        };
+      }
+      const coordMatch = str.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+      if (coordMatch) {
+        const lat = parseFloat(coordMatch[1]);
+        const lng = parseFloat(coordMatch[2]);
+        return {
+          lat,
+          lng,
+          mapsUrl: str.startsWith("http") ? str : `https://www.google.com/maps?q=${lat},${lng}`
+        };
+      }
+      return {
+        lat: -6.200000,
+        lng: 106.816666,
+        mapsUrl: str.startsWith("http") ? str : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(str)}`
+      };
+    }
+
+    function buildEmbedMapUrl(lat, lng, address, mapsUrl) {
+      const target = mapsUrl || "";
+      const coordMatch = target.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+      if (coordMatch) {
+        return `https://maps.google.com/maps?q=${coordMatch[1]},${coordMatch[2]}&z=15&output=embed`;
+      }
+      if (lat && lng && (lat !== -6.2 || lng !== 106.816666)) {
+        return `https://maps.google.com/maps?q=${lat},${lng}&z=15&output=embed`;
+      }
+      const q = address || "Jakarta";
+      return `https://maps.google.com/maps?q=${encodeURIComponent(q)}&z=14&output=embed`;
+    }
+
+    // --- CUSTOM WEB DROPDOWN COMPONENT ---
+    function toggleCustomDropdown(id) {
+      state.openDropdownId = state.openDropdownId === id ? null : id;
+      renderApp();
+    }
+
+    function closeCustomDropdown() {
+      if (state.openDropdownId) {
+        state.openDropdownId = null;
+        renderApp();
+      }
+    }
+
+    function setHiddenFieldAndRender(hiddenId, val) {
+      state.openDropdownId = null;
+      const el = document.getElementById(hiddenId);
+      if (el) el.value = val;
+      const ddWrap = el ? el.parentElement : null;
+      if (ddWrap) {
+        const labelSpan = ddWrap.querySelector("[data-dd-label]");
+        if (labelSpan) {
+          const matchingBtn = Array.from(ddWrap.querySelectorAll("[data-dd-opt]")).find(b => b.getAttribute("data-dd-opt") === val);
+          if (matchingBtn) labelSpan.textContent = matchingBtn.textContent.trim();
+        }
+        const menuEl = ddWrap.querySelector("[data-dd-menu]");
+        if (menuEl) menuEl.classList.add("hidden");
+      }
+    }
+
+    function renderCustomDropdown({ id, value, options, placeholder = "Pilih...", onSelectExpr }) {
+      const isOpen = state.openDropdownId === id;
+      const selected = options.find(o => String(o.value) === String(value));
+      const labelText = selected ? selected.label : placeholder;
+
+      return `
+        <div class="relative w-full" data-custom-dropdown>
+          <button
+            type="button"
+            onclick="event.stopPropagation(); toggleCustomDropdown('${esc(id)}')"
+            class="w-full px-3 py-2 rounded-xl bg-slate-50 hover:bg-white border border-slate-300 text-slate-800 text-xs font-semibold flex items-center justify-between gap-2 text-left transition"
+          >
+            <span data-dd-label class="truncate">${esc(labelText)}</span>
+            <span class="text-[10px] text-slate-400 shrink-0">${isOpen ? "▲" : "▼"}</span>
+          </button>
+          <div
+            data-dd-menu
+            class="${isOpen ? "" : "hidden"} absolute left-0 right-0 mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto py-1"
+          >
+            ${options.map(opt => {
+              const active = String(opt.value) === String(value);
+              const actionCode = onSelectExpr.replace(/__VAL__/g, esc(String(opt.value)));
+              return `
+                <button
+                  type="button"
+                  data-dd-opt="${esc(String(opt.value))}"
+                  onclick="event.stopPropagation(); ${actionCode}"
+                  class="w-full px-3 py-2 text-left text-xs transition flex items-center justify-between gap-2 ${active ? "brand-soft-bg font-bold" : "text-slate-700 hover:bg-slate-50"}"
+                >
+                  <span class="truncate">${esc(opt.label)}</span>
+                  ${active ? `<span class="text-[10px] brand-text font-extrabold">✓</span>` : ""}
+                </button>
+              `;
+            }).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    document.addEventListener("click", (e) => {
+      if (state.openDropdownId && !e.target.closest("[data-custom-dropdown]")) {
+        closeCustomDropdown();
+      }
+    });
+
+    // --- MODAL & TOAST SYSTEM ---
     function openModal(innerHtml) {
-      const root = document.getElementById("modal-root");
-      if (!root) return;
-      root.innerHTML = `
-        <div class="fixed inset-0 z-[100] bg-slate-900/45 backdrop-blur-xs flex items-center justify-center p-4" onclick="if(event.target===this) closeModal()">
-          <div class="bg-white border border-slate-200 w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-page">
+      const modalRoot = document.getElementById("modal-root");
+      if (!modalRoot) return;
+      modalRoot.innerHTML = `
+        <div class="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4" onclick="if(event.target===this) closeModal()">
+          <div class="bg-white text-slate-900 border border-slate-200 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-page">
             ${innerHtml}
           </div>
         </div>
@@ -5971,166 +6055,174 @@ v2.7 — Pembaruan Keamanan SHA-256
     }
 
     function closeModal() {
-      const root = document.getElementById("modal-root");
-      if (root) root.innerHTML = "";
-    }
-
-    function setHiddenFieldAndRender(inputId, val) {
-      const el = document.getElementById(inputId);
-      if (el) el.value = val;
       const modalRoot = document.getElementById("modal-root");
-      if (modalRoot && modalRoot.innerHTML.trim().length > 0) {
-        const ddWrapper = el?.parentElement?.querySelector("[data-custom-dropdown]");
-        if (ddWrapper) {
-          const labelSpan = ddWrapper.querySelector("button span");
-          if (labelSpan) labelSpan.textContent = val;
-        }
-      }
+      if (modalRoot) modalRoot.innerHTML = "";
     }
 
-    // --- RENDER ORCHESTRATOR ---
-    function renderApp(options = {}) {
+    function showToast(message, type = "info") {
+      const root = document.getElementById("toast-root");
+      if (!root) return;
+      const borderClass = type === "success"
+        ? "border-emerald-500 text-emerald-900"
+        : (type === "error"
+          ? "border-rose-500 text-rose-900"
+          : (type === "warning" ? "border-amber-500 text-amber-900" : "border-slate-300 text-slate-900"));
+      const el = document.createElement("div");
+      el.className = `pointer-events-auto bg-white border-l-4 ${borderClass} shadow-lg rounded-2xl px-4 py-3 text-xs font-semibold animate-page`;
+      el.textContent = message;
+      root.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = "0";
+        el.style.transition = "opacity 0.25s ease";
+        setTimeout(() => el.remove(), 260);
+      }, 3200);
+    }
+
+    function showCookieConsentPopupIfNeeded() {
+      if (state.cookieNoticeDismissed || state.currentUser || state.publicOrderId) return;
+      const modalRoot = document.getElementById("modal-root");
+      if (!modalRoot || modalRoot.innerHTML.trim() !== "") return;
+      const pb = state.platformBranding;
+      openModal(`
+        <div class="p-6 space-y-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <span class="inline-block px-2.5 py-0.5 rounded-full brand-soft-bg text-[10px] font-extrabold uppercase">Pemberitahuan Penyimpanan Lokal</span>
+              <h3 class="text-base font-extrabold text-slate-900 mt-1.5">Persetujuan Cache & Sesi Browser</h3>
+            </div>
+            <button type="button" onclick="dismissCookieNotice()" class="text-slate-400 hover:text-slate-700 text-xs font-bold px-2 py-1">✕</button>
+          </div>
+          <p class="text-xs text-slate-600 leading-relaxed">
+            <b>${esc(pb.appName)}</b> menggunakan penyimpanan lokal peramban (<i>localStorage</i> & cache) untuk menjaga sesi login Anda tetap aman serta mempercepat akses tampilan aplikasi.
+          </p>
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <button type="button" onclick="openLegalHubModal('privacy')" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">
+              Kebijakan Privasi
+            </button>
+            <button type="button" onclick="dismissCookieNotice()" class="brand-btn px-4 py-2 rounded-xl text-xs font-bold">
+              Setuju & Lanjutkan
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    // --- CORE APP RENDERER ---
+    function renderApp(opts = {}) {
       applyThemeVariables();
       const appEl = document.getElementById("app");
       if (!appEl) return;
 
       if (state.publicOrderId) {
-        lastShellSignature = "PUBLIC_TRACK";
+        currentShellMode = "PUBLIC";
         appEl.innerHTML = renderPublicClientPortalView();
         if (window.lucide) lucide.createIcons();
         return;
       }
 
       if (!state.currentUser) {
-        lastShellSignature = "LANDING_PAGE";
+        currentShellMode = "LANDING";
         appEl.innerHTML = renderLandingPageView();
-        if (Number(state.uiFilters.previewSimStep) === 2) renderPreviewSimBarcode();
+        if (Number(state.uiFilters.previewSimStep) === 2) {
+          renderPreviewSimBarcode();
+        }
         if (window.lucide) lucide.createIcons();
-        openCacheConsentPopup();
         return;
       }
 
-      const role = state.currentUser.role;
       const pb = state.platformBranding;
+      const role = state.currentUser.role;
       const biz = getActiveBusiness();
       const activeTitleName = role === "SUPER_ADMIN" ? pb.appName : (biz?.name || pb.appName);
 
-      const shellSig = [
-        role,
-        state.currentUser.id,
-        state.activeBusinessId,
-        state.activeTab,
-        state.openDropdownId || "",
-        cloudConnected ? "1" : "0",
-        deferredInstallPrompt ? "1" : "0",
-        pb.appName,
-        pb.logoUrl
-      ].join("|");
-
-      const existingMain = document.getElementById("app-main-content");
-      const needFullShell = options.forceShellRebuild || !existingMain || lastShellSignature !== shellSig;
-
-      if (needFullShell) {
-        lastShellSignature = shellSig;
-        const sidebarHtml = buildSidebarInnerHtml(role, pb, biz, activeTitleName);
-
+      if (opts.forceShellRebuild || currentShellMode !== "AUTH" || !document.getElementById("main-content-slot")) {
+        currentShellMode = "AUTH";
         appEl.innerHTML = `
           <div class="min-h-screen flex flex-col lg:flex-row">
-            <aside id="desktop-sidebar-slot" class="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 border-r border-slate-200/80 bg-white z-30">
-              ${sidebarHtml}
+            <!-- Desktop Sidebar -->
+            <aside id="desktop-sidebar-slot" class="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 bg-white border-r border-slate-200/80 lg:sticky lg:top-0 lg:h-screen">
+              ${buildSidebarInnerHtml(role, pb, biz, activeTitleName)}
             </aside>
 
+            <!-- Mobile Drawer -->
             <div id="mobile-sidebar-slot" class="fixed inset-0 z-50 lg:hidden ${state.mobileSidebarOpen ? "" : "pointer-events-none"}">
               <div data-drawer-backdrop onclick="toggleMobileSidebar(false)" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity duration-200 ${state.mobileSidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none"}"></div>
-              <aside data-drawer-panel class="fixed inset-y-0 left-0 w-72 max-w-[82vw] bg-white border-r border-slate-200 flex flex-col shadow-2xl transform transition-transform duration-200 ${state.mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"}">
-                ${sidebarHtml}
+              <aside data-drawer-panel class="relative w-72 max-w-[82vw] h-full bg-white shadow-2xl flex flex-col transition-transform duration-200 ${state.mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"}">
+                ${buildSidebarInnerHtml(role, pb, biz, activeTitleName)}
               </aside>
             </div>
 
-            <div class="flex-1 lg:pl-64 flex flex-col min-w-0">
-              <header class="sticky-app-header lg:hidden border-b border-slate-200/80 px-4 py-3 flex items-center justify-between gap-3 shadow-2xs">
-                <button type="button" onclick="toggleMobileSidebar(true)" class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800">
-                  <i data-lucide="menu" class="w-5 h-5"></i>
-                </button>
-                <div class="text-center min-w-0 flex-1">
-                  <p class="font-bold text-sm text-slate-900 truncate">${esc(activeTitleName)}</p>
-                  <p class="text-[10px] brand-text font-semibold">${esc(role)}</p>
+            <!-- Main Column -->
+            <div class="flex-1 min-w-0 flex flex-col">
+              <header class="sticky-app-header lg:hidden border-b border-slate-200/80 px-4 py-3 flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <button type="button" onclick="toggleMobileSidebar(true)" class="p-2 rounded-xl bg-slate-100 text-slate-700">
+                    <i data-lucide="menu" class="w-5 h-5"></i>
+                  </button>
+                  <span id="mobile-header-title" class="font-extrabold text-sm text-slate-900 truncate">${esc(activeTitleName)}</span>
                 </div>
-                <button type="button" onclick="handleLogout()" class="p-2 rounded-xl bg-slate-100 brand-text">
-                  <i data-lucide="log-out" class="w-4 h-4"></i>
-                </button>
+                <span class="text-[10px] px-2.5 py-1 rounded-full brand-soft-bg font-bold shrink-0">${esc(role)}</span>
               </header>
 
-              <main id="app-main-content" class="flex-1 p-4 sm:p-6 max-w-6xl w-full mx-auto">
+              <main id="main-content-slot" class="flex-1 p-4 sm:p-6 max-w-6xl w-full mx-auto">
                 ${renderMainContent()}
               </main>
-
-              <footer class="border-t border-slate-200/80 py-3.5 px-4 sm:px-6 text-[11px] text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 bg-white">
-                <p class="text-center sm:text-left">${esc(pb.footerText)}</p>
-                <div class="flex flex-wrap items-center justify-center gap-2.5 font-semibold">
-                  <button type="button" onclick="openLegalHubModal('disclaimer')" class="brand-text hover:underline">Disclaimer</button>
-                  <span>•</span>
-                  <button type="button" onclick="openLegalHubModal('privacy')" class="brand-text hover:underline">Privasi</button>
-                  <span>•</span>
-                  <button type="button" onclick="openLegalHubModal('guide')" class="brand-text hover:underline">Panduan</button>
-                  <span>•</span>
-                  <button type="button" onclick="openLegalHubModal('contact')" class="brand-text hover:underline">Bantuan</button>
-                </div>
-              </footer>
             </div>
           </div>
         `;
-      } else if (!options.sidebarOnly) {
-        existingMain.innerHTML = renderMainContent();
       } else {
+        const deskSide = document.getElementById("desktop-sidebar-slot");
+        const mobDrawer = document.querySelector("#mobile-sidebar-slot [data-drawer-panel]");
+        const mobTitle = document.getElementById("mobile-header-title");
         const sidebarHtml = buildSidebarInnerHtml(role, pb, biz, activeTitleName);
-        const desktopSlot = document.getElementById("desktop-sidebar-slot");
-        const mobilePanel = document.querySelector("#mobile-sidebar-slot [data-drawer-panel]");
-        if (desktopSlot) desktopSlot.innerHTML = sidebarHtml;
-        if (mobilePanel) mobilePanel.innerHTML = sidebarHtml;
+
+        if (deskSide) deskSide.innerHTML = sidebarHtml;
+        if (mobDrawer) mobDrawer.innerHTML = sidebarHtml;
+        if (mobTitle) mobTitle.textContent = activeTitleName;
+        updateMobileDrawerOnly();
+
+        if (!opts.sidebarOnly) {
+          const mainSlot = document.getElementById("main-content-slot");
+          if (mainSlot) mainSlot.innerHTML = renderMainContent();
+        }
       }
 
-      lastRenderedTab = state.activeTab;
-      lastRenderedSubRoute = `${state.uiFilters.reportPreset}|${state.uiFilters.orderStatus}`;
       if (window.lucide) lucide.createIcons();
     }
 
-    // --- GLOBAL EXPORTS ---
+    // --- GLOBAL WINDOW BINDINGS ---
     window.state = state;
-    window.addDaysIso = addDaysIso;
     window.renderApp = renderApp;
     window.openLoginModal = openLoginModal;
+    window.closeModal = closeModal;
     window.handleLogin = handleLogin;
     window.fillDemoAccount = fillDemoAccount;
     window.handleLogout = handleLogout;
-    window.openCacheConsentPopup = openCacheConsentPopup;
+    window.switchTab = switchTab;
+    window.toggleMobileSidebar = toggleMobileSidebar;
+    window.switchActiveBusiness = switchActiveBusiness;
+    window.triggerPwaInstall = triggerPwaInstall;
     window.dismissCookieNotice = dismissCookieNotice;
-    window.setManualVsMode = setManualVsMode;
+    window.openLegalHubModal = openLegalHubModal;
+    window.switchLegalDocTab = switchLegalDocTab;
     window.openFeatureVideoPopup = openFeatureVideoPopup;
+    window.setManualVsMode = setManualVsMode;
     window.setPreviewSimStep = setPreviewSimStep;
     window.addPreviewSimService = addPreviewSimService;
     window.updatePreviewSimQty = updatePreviewSimQty;
     window.removePreviewSimItem = removePreviewSimItem;
     window.setPreviewSimStatus = setPreviewSimStatus;
-    window.handleTestimonialTouchStart = handleTestimonialTouchStart;
-    window.handleTestimonialTouchEnd = handleTestimonialTouchEnd;
     window.changeTestimonialSlide = changeTestimonialSlide;
     window.setTestimonialSlide = setTestimonialSlide;
+    window.handleTestimonialTouchStart = handleTestimonialTouchStart;
+    window.handleTestimonialTouchEnd = handleTestimonialTouchEnd;
     window.toggleFaqAccordion = toggleFaqAccordion;
-    window.switchTab = switchTab;
-    window.toggleMobileSidebar = toggleMobileSidebar;
-    window.switchActiveBusiness = switchActiveBusiness;
-    window.toggleCustomDropdown = toggleCustomDropdown;
-    window.closeCustomDropdown = closeCustomDropdown;
-    window.setHiddenFieldAndRender = setHiddenFieldAndRender;
-    window.triggerPwaInstall = triggerPwaInstall;
-    window.switchLegalDocTab = switchLegalDocTab;
-    window.openLegalHubModal = openLegalHubModal;
     window.openOwnerDetailModal = openOwnerDetailModal;
     window.openOwnerFormModal = openOwnerFormModal;
     window.saveOwnerAccount = saveOwnerAccount;
     window.openConfirmDeleteOwnerModal = openConfirmDeleteOwnerModal;
     window.purgeOwnerDataCascade = purgeOwnerDataCascade;
+    window.addDaysIso = addDaysIso;
     window.selectPosCustomer = selectPosCustomer;
     window.addServiceToPosCart = addServiceToPosCart;
     window.updatePosCartQty = updatePosCartQty;
@@ -6178,25 +6270,34 @@ v2.7 — Pembaruan Keamanan SHA-256
     window.savePlatformGeneralSettings = savePlatformGeneralSettings;
     window.saveLandingPageSettings = saveLandingPageSettings;
     window.handleFileToInput = handleFileToInput;
-    window.handleVideoFileToInput = handleVideoFileToInput;
     window.downloadOwnerBackup = downloadOwnerBackup;
     window.restoreOwnerBackupFromFile = restoreOwnerBackupFromFile;
     window.downloadFullPlatformBackup = downloadFullPlatformBackup;
     window.restoreFullPlatformBackup = restoreFullPlatformBackup;
-    window.openModal = openModal;
-    window.closeModal = closeModal;
+    window.toggleCustomDropdown = toggleCustomDropdown;
+    window.closeCustomDropdown = closeCustomDropdown;
+    window.setHiddenFieldAndRender = setHiddenFieldAndRender;
+    window.showToast = showToast;
 
-    // --- BOOTSTRAP ---
-    loadStateFromStorage();
-    await migrateLegacyPlainPasswordsToSha256();
-    autoPurgeExpiredOwners(false);
-    applyRouteFromUrl();
+    // --- BOOTSTRAP APPLICATION ---
     window.addEventListener("hashchange", () => {
       applyRouteFromUrl();
       renderApp({ forceShellRebuild: true });
     });
+
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      renderApp({ sidebarOnly: true });
+    });
+
+    applyRouteFromUrl();
+    autoPurgeExpiredOwners(false);
     renderApp({ forceShellRebuild: true });
     initFirebase();
+    setTimeout(() => {
+      showCookieConsentPopupIfNeeded();
+    }, 650);
   </script>
 </body>
 </html>
